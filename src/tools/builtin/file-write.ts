@@ -39,10 +39,17 @@ export const fileWriteTool: Tool = {
         const filePath = path.resolve(params.path);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
 
+        // Fix escaped quotes that LLMs sometimes produce in code files
+        let content = params.content;
+        const codeExts = [".tsx", ".ts", ".jsx", ".js", ".html", ".css", ".json", ".vue", ".svelte"];
+        if (codeExts.some((ext) => filePath.endsWith(ext))) {
+          content = content.replace(/\\"/g, '"').replace(/\\'/g, "'");
+        }
+
         if (params.append) {
-          await fs.appendFile(filePath, params.content, "utf-8");
+          await fs.appendFile(filePath, content, "utf-8");
         } else {
-          await fs.writeFile(filePath, params.content, "utf-8");
+          await fs.writeFile(filePath, content, "utf-8");
         }
 
         return { success: true, data: `Written to ${filePath}` };

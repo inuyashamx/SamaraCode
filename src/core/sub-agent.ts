@@ -79,6 +79,13 @@ ${this.localRegistry.listForLLM()}
 - If something fails, try a different approach. Don't repeat the same failing command.
 - If you can't complete the task, explain what's missing.
 
+## CRITICAL — file_write rules
+- NEVER use escaped quotes (\\" or \\') inside file content. Use normal quotes: " and '
+- After writing ANY code file (.tsx, .ts, .jsx, .js, .css, .html), ALWAYS read it back with file_read to verify it looks correct.
+- If you see backslash-escaped quotes (\\" or \\') in the file content, REWRITE the file immediately with proper quotes.
+- JSX example — CORRECT: <div className="flex"> — WRONG: <div className=\\"flex\\">
+- This is the #1 cause of build errors. ALWAYS verify your writes.
+
 ## Shell commands — IMPORTANT
 - ALWAYS prefer cross-platform commands: node, npm, npx, git, tsc, etc.
 - For file operations, use the file_read/file_write/dir_list tools instead of shell commands when possible.
