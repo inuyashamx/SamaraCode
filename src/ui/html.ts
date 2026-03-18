@@ -368,12 +368,52 @@ if (typeof marked !== 'undefined') {
     <div id="tabs">
       <div class="tab active" onclick="switchTab('chat')">Chat</div>
       <div class="tab" onclick="switchTab('logs')">Logs</div>
+      <div class="tab" onclick="switchTab('tokens')">Tokens <span id="tk-badge" style="color:var(--green);font-size:10px">$0.00</span></div>
     </div>
     <div id="logs-panel">
       <div id="chat-tab" class="tab-content active">
         <div id="chat-thinking"><span class="thinking-dot">⟳</span> Thinking... <span id="thinking-timer">0s</span></div>
       </div>
       <div id="logs-tab" class="tab-content"></div>
+      <div id="tokens-tab" class="tab-content">
+        <div style="max-width:600px;">
+          <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+            <div style="flex:1;min-width:120px;background:var(--surface);border-radius:8px;padding:12px">
+              <div style="color:var(--subtext);font-size:11px;text-transform:uppercase;margin-bottom:4px">LLM Calls</div>
+              <div id="tk-calls" style="color:var(--text);font-size:22px;font-weight:bold">0</div>
+            </div>
+            <div style="flex:1;min-width:120px;background:var(--surface);border-radius:8px;padding:12px">
+              <div style="color:var(--subtext);font-size:11px;text-transform:uppercase;margin-bottom:4px">Input Tokens</div>
+              <div id="tk-input" style="color:var(--cyan);font-size:22px;font-weight:bold">0</div>
+            </div>
+            <div style="flex:1;min-width:120px;background:var(--surface);border-radius:8px;padding:12px">
+              <div style="color:var(--subtext);font-size:11px;text-transform:uppercase;margin-bottom:4px">Output Tokens</div>
+              <div id="tk-output" style="color:var(--orange);font-size:22px;font-weight:bold">0</div>
+            </div>
+            <div style="flex:1;min-width:120px;background:var(--surface);border-radius:8px;padding:12px">
+              <div style="color:var(--subtext);font-size:11px;text-transform:uppercase;margin-bottom:4px">Total Tokens</div>
+              <div id="tk-total" style="color:var(--yellow);font-size:22px;font-weight:bold">0</div>
+            </div>
+            <div style="flex:1;min-width:120px;background:var(--surface);border:1px solid var(--green);border-radius:8px;padding:12px">
+              <div style="color:var(--subtext);font-size:11px;text-transform:uppercase;margin-bottom:4px">Total Cost</div>
+              <div id="tk-cost" style="color:var(--green);font-size:22px;font-weight:bold">$0.000000</div>
+            </div>
+          </div>
+          <div style="color:var(--yellow);font-weight:bold;font-size:12px;text-transform:uppercase;margin-bottom:8px">Query Log</div>
+          <div style="background:var(--bg3);border-radius:6px;overflow:hidden">
+            <div style="display:flex;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;color:var(--subtext);text-transform:uppercase">
+              <span style="width:70px">Time</span>
+              <span style="width:90px">Source</span>
+              <span style="width:140px">Model</span>
+              <span style="width:70px;text-align:right">Input</span>
+              <span style="width:70px;text-align:right">Output</span>
+              <span style="width:70px;text-align:right">Total</span>
+              <span style="flex:1;text-align:right">Cost</span>
+            </div>
+            <div id="token-log" style="max-height:400px;overflow-y:auto"></div>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="previews-container">
       <div id="preview-url-bar">
@@ -389,28 +429,6 @@ if (typeof marked !== 'undefined') {
   <div id="sidebar">
     <div class="sidebar-title">Tasks & Agents</div>
     <div id="tasks-list"><span class="empty-state">No active tasks</span></div>
-
-    <div class="sidebar-title">Token Usage</div>
-    <div id="token-summary">
-      <div style="font-size:11px;color:var(--subtext);padding:4px 0;">
-        <div style="display:flex;justify-content:space-between;padding:2px 0">
-          <span>Calls:</span><span id="tk-calls" style="color:var(--text)">0</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:2px 0">
-          <span>Input:</span><span id="tk-input" style="color:var(--cyan)">0</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:2px 0">
-          <span>Output:</span><span id="tk-output" style="color:var(--orange)">0</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:2px 0">
-          <span>Total:</span><span id="tk-total" style="color:var(--yellow);font-weight:bold">0</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--border);margin-top:4px">
-          <span>Cost:</span><span id="tk-cost" style="color:var(--green);font-weight:bold">$0.000000</span>
-        </div>
-      </div>
-    </div>
-    <div id="token-log" style="max-height:200px;overflow-y:auto;margin-top:4px"></div>
 
     <div class="sidebar-title">Providers</div>
     <div id="models-list"></div>
@@ -620,7 +638,8 @@ function addLog(type, text) {
 
   // Update log count on tab
   logCounter++;
-  document.querySelectorAll('.tab')[1].textContent = 'Logs (' + logCounter + ')';
+  var logsTabEl = document.querySelectorAll('.tab')[1];
+  if (logsTabEl) logsTabEl.textContent = 'Logs (' + logCounter + ')';
 }
 
 var previewTabs = [];
@@ -647,10 +666,15 @@ function switchTab(tab) {
     rawLogsEl.scrollTop = rawLogsEl.scrollHeight;
     lp.style.display = 'flex';
     pc.classList.remove('has-active');
+  } else if (tab === 'tokens') {
+    document.querySelectorAll('.tab')[2].classList.add('active');
+    document.getElementById('tokens-tab').classList.add('active');
+    lp.style.display = 'flex';
+    pc.classList.remove('has-active');
   } else if (tab.startsWith('preview-')) {
     var idx = previewTabs.findIndex(function(p) { return p.id === tab; });
     if (idx >= 0) {
-      document.querySelectorAll('.tab')[idx + 2].classList.add('active');
+      document.querySelectorAll('.tab')[idx + 3].classList.add('active');
       document.getElementById(tab + '-frame').classList.add('active');
       lp.style.display = 'none';
       pc.classList.add('has-active');
@@ -874,22 +898,28 @@ function fmtTokens(n) {
 }
 
 function updateTokenReport(entry, summary) {
-  // Update summary counters
+  // Update summary cards
   document.getElementById('tk-calls').textContent = summary.entries;
   document.getElementById('tk-input').textContent = fmtTokens(summary.total_input);
   document.getElementById('tk-output').textContent = fmtTokens(summary.total_output);
   document.getElementById('tk-total').textContent = fmtTokens(summary.total_tokens);
   document.getElementById('tk-cost').textContent = '$' + summary.total_cost.toFixed(6);
 
-  // Add entry to log
+  // Update tab badge
+  document.getElementById('tk-badge').textContent = '$' + summary.total_cost.toFixed(4);
+
+  // Add row to query log table
   var logEl = document.getElementById('token-log');
   var div = document.createElement('div');
-  div.style.cssText = 'font-size:10px;padding:3px 4px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:4px';
+  div.style.cssText = 'display:flex;padding:5px 10px;border-bottom:1px solid var(--border);font-size:11px;align-items:center';
   var time = new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  div.innerHTML = '<span style="color:var(--subtext)">' + time + '</span>'
-    + '<span style="color:var(--cyan)">' + entry.source.slice(0, 10) + '</span>'
-    + '<span style="color:var(--text)">' + fmtTokens(entry.total_tokens) + '</span>'
-    + '<span style="color:var(--green)">$' + entry.cost_usd.toFixed(6) + '</span>';
+  div.innerHTML = '<span style="width:70px;color:var(--subtext)">' + time + '</span>'
+    + '<span style="width:90px;color:var(--cyan);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + entry.source + '</span>'
+    + '<span style="width:140px;color:var(--subtext);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + entry.model + '</span>'
+    + '<span style="width:70px;text-align:right;color:var(--text)">' + fmtTokens(entry.input_tokens) + '</span>'
+    + '<span style="width:70px;text-align:right;color:var(--text)">' + fmtTokens(entry.output_tokens) + '</span>'
+    + '<span style="width:70px;text-align:right;color:var(--yellow)">' + fmtTokens(entry.total_tokens) + '</span>'
+    + '<span style="flex:1;text-align:right;color:var(--green)">$' + entry.cost_usd.toFixed(6) + '</span>';
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
