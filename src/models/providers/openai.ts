@@ -4,7 +4,7 @@ import { ToolDefinition } from "../../tools/types.js";
 
 export class OpenAIProvider implements LLMProvider {
   name = "openai";
-  models = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"];
+  models = [];
   private client: OpenAI | null = null;
 
   async isAvailable(): Promise<boolean> {

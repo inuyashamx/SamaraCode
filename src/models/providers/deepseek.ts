@@ -4,7 +4,7 @@ import { ToolDefinition } from "../../tools/types.js";
 
 export class DeepSeekProvider implements LLMProvider {
   name = "deepseek";
-  models = ["deepseek-chat", "deepseek-reasoner"];
+  models = [];
   private client: OpenAI | null = null;
 
   async isAvailable(): Promise<boolean> {

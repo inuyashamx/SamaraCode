@@ -16,6 +16,25 @@ export interface OrchestratorConfig {
   confirmBeforeExec?: (toolName: string, args: Record<string, any>) => Promise<boolean>;
 }
 
+// Token usage tracking per LLM call
+export interface TokenEntry {
+  id: number;
+  timestamp: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  source: string; // "orchestrator" | agent name
+}
+
+// Pricing per 1M tokens (input/output) — gemini-3.1-flash-lite-preview is free tier
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "gemini-3.1-flash-lite-preview": { input: 0.0, output: 0.0 },
+  "gemini-2.5-flash": { input: 0.15, output: 0.60 },
+  "gemini-2.5-pro": { input: 1.25, output: 10.0 },
+};
+
 function buildSystemPrompt(toolList: string, taskSummary: string, availableProviders: string[] = []): string {
   const providerNote = `\nAvailable providers: ${availableProviders.join(", ") || "none"}`;
   return `You are SamaraCode ⚡, an orchestrator agent.
@@ -230,6 +249,8 @@ export class Orchestrator extends EventEmitter {
   private pendingNotifications: string[] = [];
   private activePlan: Plan | null = null;
   private previewErrors: string[] = [];
+  private tokenLog: TokenEntry[] = [];
+  private tokenCounter = 0;
 
   constructor(
     registry: ToolRegistry,
@@ -328,9 +349,11 @@ export class Orchestrator extends EventEmitter {
         continue;
       }
 
-      if (this.config.verbose && response.usage) {
-        const t = response.usage;
-        console.log(`  ↳ ${t.input_tokens + t.output_tokens} tokens`);
+      if (response.usage) {
+        const entry = this.trackTokens(response.model, response.usage, "orchestrator");
+        if (this.config.verbose) {
+          console.log(`  ↳ ${entry.total_tokens} tokens ($${entry.cost_usd.toFixed(6)})`);
+        }
       }
 
       if (!response.tool_calls || response.tool_calls.length === 0) {
@@ -836,5 +859,43 @@ export class Orchestrator extends EventEmitter {
   pushPreviewError(error: string): void {
     this.previewErrors.push(error);
     if (this.previewErrors.length > 50) this.previewErrors.shift();
+  }
+
+  trackTokens(model: string, usage: { input_tokens: number; output_tokens: number }, source: string): TokenEntry {
+    const pricing = MODEL_PRICING[model] || { input: 0, output: 0 };
+    const cost = (usage.input_tokens * pricing.input + usage.output_tokens * pricing.output) / 1_000_000;
+    const entry: TokenEntry = {
+      id: ++this.tokenCounter,
+      timestamp: new Date().toISOString(),
+      model,
+      input_tokens: usage.input_tokens,
+      output_tokens: usage.output_tokens,
+      total_tokens: usage.input_tokens + usage.output_tokens,
+      cost_usd: cost,
+      source,
+    };
+    this.tokenLog.push(entry);
+    this.emit("token_update", entry);
+    return entry;
+  }
+
+  getTokenLog(): TokenEntry[] {
+    return [...this.tokenLog];
+  }
+
+  getTokenSummary(): { total_input: number; total_output: number; total_tokens: number; total_cost: number; entries: number } {
+    let total_input = 0, total_output = 0, total_cost = 0;
+    for (const e of this.tokenLog) {
+      total_input += e.input_tokens;
+      total_output += e.output_tokens;
+      total_cost += e.cost_usd;
+    }
+    return {
+      total_input,
+      total_output,
+      total_tokens: total_input + total_output,
+      total_cost,
+      entries: this.tokenLog.length,
+    };
   }
 }

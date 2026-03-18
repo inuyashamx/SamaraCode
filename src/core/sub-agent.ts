@@ -26,6 +26,7 @@ export interface SubAgentResult {
   iterations: number;
   error?: string;
   logs: SubAgentLog[];
+  tokenUsage?: { input_tokens: number; output_tokens: number; calls: number };
 }
 
 export class SubAgent {
@@ -91,6 +92,7 @@ ${this.localRegistry.listForLLM()}
     const logs: SubAgentLog[] = [];
     let iterations = 0;
     const maxIter = this.config.maxIterations || 25;
+    let totalInput = 0, totalOutput = 0, llmCalls = 0;
 
     const log = (type: SubAgentLog["type"], text: string) => {
       logs.push({ timestamp: new Date(), type, text });
@@ -121,8 +123,16 @@ ${this.localRegistry.listForLLM()}
         return {
           success: false, output: `LLM error: ${err.message}`,
           toolsUsed: [...new Set(toolsUsed)], iterations, logs,
+          tokenUsage: { input_tokens: totalInput, output_tokens: totalOutput, calls: llmCalls },
           error: err.message,
         };
+      }
+
+      // Track token usage
+      if (response.usage) {
+        totalInput += response.usage.input_tokens;
+        totalOutput += response.usage.output_tokens;
+        llmCalls++;
       }
 
       // No tool calls — agent is done
@@ -134,6 +144,7 @@ ${this.localRegistry.listForLLM()}
           toolsUsed: [...new Set(toolsUsed)],
           iterations,
           logs,
+          tokenUsage: { input_tokens: totalInput, output_tokens: totalOutput, calls: llmCalls },
         };
       }
 
@@ -181,6 +192,7 @@ ${this.localRegistry.listForLLM()}
       toolsUsed: [...new Set(toolsUsed)],
       iterations,
       logs,
+      tokenUsage: { input_tokens: totalInput, output_tokens: totalOutput, calls: llmCalls },
       error: "Max iterations reached without completion",
     };
   }

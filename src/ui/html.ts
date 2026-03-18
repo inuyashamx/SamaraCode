@@ -390,6 +390,28 @@ if (typeof marked !== 'undefined') {
     <div class="sidebar-title">Tasks & Agents</div>
     <div id="tasks-list"><span class="empty-state">No active tasks</span></div>
 
+    <div class="sidebar-title">Token Usage</div>
+    <div id="token-summary">
+      <div style="font-size:11px;color:var(--subtext);padding:4px 0;">
+        <div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span>Calls:</span><span id="tk-calls" style="color:var(--text)">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span>Input:</span><span id="tk-input" style="color:var(--cyan)">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span>Output:</span><span id="tk-output" style="color:var(--orange)">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span>Total:</span><span id="tk-total" style="color:var(--yellow);font-weight:bold">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--border);margin-top:4px">
+          <span>Cost:</span><span id="tk-cost" style="color:var(--green);font-weight:bold">$0.000000</span>
+        </div>
+      </div>
+    </div>
+    <div id="token-log" style="max-height:200px;overflow-y:auto;margin-top:4px"></div>
+
     <div class="sidebar-title">Providers</div>
     <div id="models-list"></div>
 
@@ -500,6 +522,10 @@ ws.onmessage = (e) => {
         logEl.appendChild(d);
         logEl.scrollTop = logEl.scrollHeight;
       }
+      break;
+
+    case 'token_update':
+      updateTokenReport(msg.entry, msg.summary);
       break;
   }
 };
@@ -839,6 +865,33 @@ function renderModels(providers) {
     if ((p.models || []).length > 4) models += ' +' + (p.models.length - 4);
     return '<div class="model-item">' + icon + ' <span class="model-provider">' + p.name + '</span>' + label + '<br><span class="model-name" style="padding-left:18px">' + (models || 'default') + '</span></div>';
   }).join('');
+}
+
+function fmtTokens(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(2) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+function updateTokenReport(entry, summary) {
+  // Update summary counters
+  document.getElementById('tk-calls').textContent = summary.entries;
+  document.getElementById('tk-input').textContent = fmtTokens(summary.total_input);
+  document.getElementById('tk-output').textContent = fmtTokens(summary.total_output);
+  document.getElementById('tk-total').textContent = fmtTokens(summary.total_tokens);
+  document.getElementById('tk-cost').textContent = '$' + summary.total_cost.toFixed(6);
+
+  // Add entry to log
+  var logEl = document.getElementById('token-log');
+  var div = document.createElement('div');
+  div.style.cssText = 'font-size:10px;padding:3px 4px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:4px';
+  var time = new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  div.innerHTML = '<span style="color:var(--subtext)">' + time + '</span>'
+    + '<span style="color:var(--cyan)">' + entry.source.slice(0, 10) + '</span>'
+    + '<span style="color:var(--text)">' + fmtTokens(entry.total_tokens) + '</span>'
+    + '<span style="color:var(--green)">$' + entry.cost_usd.toFixed(6) + '</span>';
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
 var thinkingInterval = null;

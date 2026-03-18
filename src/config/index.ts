@@ -155,52 +155,10 @@ export async function runSetupWizard(rl: readline.Interface): Promise<SamaraCode
 }
 
 function configureRouting(config: SamaraCodeConfig): void {
-  const hasClaude = !!config.providers.claude;
-  const hasOpenai = !!config.providers.openai;
-  const hasDeepseek = !!config.providers.deepseek;
-  const hasGemini = !!config.providers.gemini;
-
-  // Simple: cheapest available
-  if (hasGemini) {
-    config.routing.simple = { provider: "gemini", model: "gemini-3.1-flash-lite-preview" };
-  } else if (hasDeepseek) {
-    config.routing.simple = { provider: "deepseek", model: "deepseek-chat" };
-  } else if (hasOpenai) {
-    config.routing.simple = { provider: "openai", model: "gpt-5.4-mini" };
-  } else if (hasClaude) {
-    config.routing.simple = { provider: "claude", model: "claude-haiku-4-5" };
-  }
-
-  // Moderate
-  if (hasGemini) {
-    config.routing.moderate = { provider: "gemini", model: "gemini-3.1-flash-lite-preview" };
-  } else if (hasDeepseek) {
-    config.routing.moderate = { provider: "deepseek", model: "deepseek-chat" };
-  } else if (hasOpenai) {
-    config.routing.moderate = { provider: "openai", model: "gpt-5.4-mini" };
-  } else if (hasClaude) {
-    config.routing.moderate = { provider: "claude", model: "claude-sonnet-4-6" };
-  }
-
-  // Complex: strong model
-  if (hasClaude) {
-    config.routing.complex = { provider: "claude", model: "claude-sonnet-4-6" };
-  } else if (hasGemini) {
-    config.routing.complex = { provider: "gemini", model: "gemini-2.5-pro" };
-  } else if (hasOpenai) {
-    config.routing.complex = { provider: "openai", model: "gpt-5.4" };
-  } else if (hasDeepseek) {
-    config.routing.complex = { provider: "deepseek", model: "deepseek-reasoner" };
-  }
-
-  // Expert: best available
-  if (hasClaude) {
-    config.routing.expert = { provider: "claude", model: "claude-opus-4-6" };
-  } else if (hasGemini) {
-    config.routing.expert = { provider: "gemini", model: "gemini-2.5-pro" };
-  } else if (hasOpenai) {
-    config.routing.expert = { provider: "openai", model: "gpt-5.4-pro" };
-  } else if (hasDeepseek) {
-    config.routing.expert = { provider: "deepseek", model: "deepseek-reasoner" };
-  }
+  // All complexity levels use gemini-3.1-flash-lite-preview (free tier)
+  const model = { provider: "gemini", model: "gemini-3.1-flash-lite-preview" };
+  config.routing.simple = { ...model };
+  config.routing.moderate = { ...model };
+  config.routing.complex = { ...model };
+  config.routing.expert = { ...model };
 }

@@ -55,6 +55,12 @@ export function startServer(
     broadcast(event);
   });
 
+  // Listen for token usage events
+  orchestrator.on("token_update", (entry: any) => {
+    const summary = orchestrator.getTokenSummary();
+    broadcast({ type: "token_update", entry, summary });
+  });
+
   // Capture console.log for verbose output
   const origLog = console.log;
   console.log = (...args: any[]) => {
@@ -118,6 +124,15 @@ export function startServer(
           text: typeof output === "string" ? output.slice(0, 500) : JSON.stringify(output).slice(0, 500),
           time: new Date().toISOString(),
         });
+      }
+      // Track sub-agent token usage
+      const tokenUsage = event.data?.tokenUsage;
+      if (tokenUsage && tokenUsage.input_tokens > 0) {
+        orchestrator.trackTokens(
+          task?.model || "gemini-3.1-flash-lite-preview",
+          { input_tokens: tokenUsage.input_tokens, output_tokens: tokenUsage.output_tokens },
+          task?.name || "agent"
+        );
       }
       broadcast({ type: "log", entry: { type: "system", text: `✅ **${task?.name}** completed (${dur}s)` } });
 

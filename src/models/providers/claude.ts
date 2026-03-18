@@ -4,7 +4,7 @@ import { ToolDefinition } from "../../tools/types.js";
 
 export class ClaudeProvider implements LLMProvider {
   name = "claude";
-  models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"];
+  models = [];
   private client: Anthropic | null = null;
 
   async isAvailable(): Promise<boolean> {
