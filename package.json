@@ -1,0 +1,43 @@
+{
+  "name": "samaracode",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "samara": "bin/samara.mjs"
+  },
+  "scripts": {
+    "dev": "tsx src/main.tsx",
+    "dev:classic": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "prepublishOnly": "npm run build",
+    "postinstall": "npm run build 2>/dev/null || true",
+    "test:tools": "tsx src/test-tools.ts"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "autonomous",
+    "coding"
+  ],
+  "author": "",
+  "license": "MIT",
+  "description": "Self-extending autonomous coding agent. Multi-model, multi-agent, learns and builds its own tools.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "chalk": "^5.6.2",
+    "glob": "^13.0.6",
+    "openai": "^6.32.0",
+    "ora": "^8.2.0",
+    "readline-sync": "^1.4.10",
+    "typescript": "^5.9.3",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0"
+  }
+}

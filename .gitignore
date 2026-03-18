@@ -1,0 +1,29 @@
+node_modules/
+dist/
+data/
+
+# Config directories (contain API keys)
+.samaracode/
+.samaracore2/
+.autonomo.json
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+config.json
+
+# Logs
+*.log
+
+# IDE / editor
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
