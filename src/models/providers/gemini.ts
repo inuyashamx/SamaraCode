@@ -3,7 +3,7 @@ import { ToolDefinition } from "../../tools/types.js";
 
 export class GeminiProvider implements LLMProvider {
   name = "gemini";
-  models = ["gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview"];
+  models = ["gemini-2.5-pro", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash"];
   private apiKey: string = "";
 
   async isAvailable(): Promise<boolean> {

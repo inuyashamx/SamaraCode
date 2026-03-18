@@ -82,7 +82,8 @@ function migrateModels(config: SamaraCodeConfig): void {
     "claude-haiku-4-5-20250627": "claude-haiku-4-5",
     "gemini-3.1-flash": "gemini-3.1-flash-lite-preview",
     "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-preview",
-    "gemini-3.1-pro": "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-pro": "gemini-2.5-pro",
+    "gemini-3.1-pro-preview": "gemini-2.5-pro",
   };
 
   // Migrate provider defaults
@@ -185,7 +186,7 @@ function configureRouting(config: SamaraCodeConfig): void {
   if (hasClaude) {
     config.routing.complex = { provider: "claude", model: "claude-sonnet-4-6" };
   } else if (hasGemini) {
-    config.routing.complex = { provider: "gemini", model: "gemini-3.1-pro-preview" };
+    config.routing.complex = { provider: "gemini", model: "gemini-2.5-pro" };
   } else if (hasOpenai) {
     config.routing.complex = { provider: "openai", model: "gpt-5.4" };
   } else if (hasDeepseek) {
@@ -196,7 +197,7 @@ function configureRouting(config: SamaraCodeConfig): void {
   if (hasClaude) {
     config.routing.expert = { provider: "claude", model: "claude-opus-4-6" };
   } else if (hasGemini) {
-    config.routing.expert = { provider: "gemini", model: "gemini-3.1-pro-preview" };
+    config.routing.expert = { provider: "gemini", model: "gemini-2.5-pro" };
   } else if (hasOpenai) {
     config.routing.expert = { provider: "openai", model: "gpt-5.4-pro" };
   } else if (hasDeepseek) {
