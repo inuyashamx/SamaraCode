@@ -1,6 +1,7 @@
 import { ToolRegistry } from "../registry.js";
 import { fileReadTool } from "./file-read.js";
 import { fileWriteTool } from "./file-write.js";
+import { fileEditTool } from "./file-edit.js";
 import { dirListTool } from "./dir-list.js";
 import { bashExecuteTool } from "./bash-execute.js";
 import { webFetchTool } from "./web-fetch.js";
@@ -14,6 +15,7 @@ import { selfReadTool, selfListTool, selfProposeTool, selfApplyTool } from "./se
 export function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(fileReadTool);
   registry.register(fileWriteTool);
+  registry.register(fileEditTool);
   registry.register(dirListTool);
   registry.register(bashExecuteTool);
   registry.register(webFetchTool);

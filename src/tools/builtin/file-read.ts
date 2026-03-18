@@ -2,7 +2,7 @@ import { Tool, ToolResult } from "../types.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-const MAX_LINES_DEFAULT = 300;
+const MAX_LINES_DEFAULT = 500;
 
 export const fileReadTool: Tool = {
   name: "file_read",

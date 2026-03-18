@@ -79,6 +79,37 @@ ${this.localRegistry.listForLLM()}
 - If something fails, try a different approach. Don't repeat the same failing command.
 - If you can't complete the task, explain what's missing.
 
+## CRITICAL — finding files
+- If your task includes exact file paths, use those DIRECTLY. Do NOT guess alternative paths.
+- If you need to find a file and don't have the exact path, ALWAYS use dir_list or grep_search FIRST. NEVER guess file paths with file_read.
+- If file_read returns ENOENT, STOP guessing. Use dir_list on the parent directory to find the correct path.
+- NEVER try more than 2 file_read attempts without using dir_list first.
+
+## CRITICAL — editing existing files
+- To modify existing files, ALWAYS use file_edit instead of file_write.
+- file_edit has TWO modes:
+  1. REPLACE: Use start_line + end_line + new_string to replace a range of lines.
+  2. INSERT: Use start_line + new_string (WITHOUT end_line) to insert new lines AFTER that line.
+- ALWAYS prefer INSERT mode when adding new fields/properties/lines. Only use REPLACE when you need to change existing lines.
+- Workflow: 1) file_read to see the line numbers, 2) file_edit with line numbers, 3) file_read AGAIN to verify.
+- To INSERT after line 875: file_edit({ path: "file.html", start_line: 875, new_string: "new lines" })
+- To REPLACE lines 867-875: file_edit({ path: "file.html", start_line: 867, end_line: 875, new_string: "replacement" })
+- NEVER use file_write to rewrite an entire large file.
+- Only use file_write for creating NEW files that don't exist yet.
+
+## CRITICAL — verify after EVERY edit
+- After EVERY file_edit call, you MUST do file_read on the edited area (±10 lines) to verify the result.
+- Check that: brackets/braces are balanced, the code structure makes sense, no lines were accidentally deleted.
+- If the verification shows broken code, IMMEDIATELY fix it with another file_edit before proceeding.
+- NEVER move on to the next edit without verifying the previous one.
+
+## CRITICAL — safe editing rules
+- When adding a new field to an object literal (like {a: 1, b: 2}), use INSERT to add a new line — do NOT replace existing lines.
+- When adding a new HTML element, use INSERT after the element above it — do NOT replace existing elements.
+- When modifying a function, read the ENTIRE function first (all lines from start to end) before editing. Understand the structure.
+- NEVER replace lines that contain code you don't fully understand — you might break callbacks, closures, or control flow.
+- If a function is complex (callbacks, promises, nested blocks), read at least 30 lines of context before and after your target.
+
 ## CRITICAL — file_write rules
 - NEVER use escaped quotes (\\" or \\') inside file content. Use normal quotes: " and '
 - After writing ANY code file (.tsx, .ts, .jsx, .js, .css, .html), ALWAYS read it back with file_read to verify it looks correct.
