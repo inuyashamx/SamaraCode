@@ -10,22 +10,33 @@ export const webFetchTool: Tool = {
     { name: "method", type: "string", description: "HTTP method (default: GET)", required: false, default: "GET" },
     { name: "headers", type: "object", description: "Request headers as key-value pairs", required: false },
     { name: "body", type: "string", description: "Request body for POST/PUT", required: false },
+    { name: "timeout", type: "number", description: "Request timeout in ms (default: 30000)", required: false, default: 30000 },
   ],
   async execute(params): Promise<ToolResult> {
     try {
+      const timeout = params.timeout || 30000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+
       const options: RequestInit = {
         method: params.method || "GET",
         headers: {
           "User-Agent": "SamaraCode/1.0",
           ...(params.headers || {}),
         },
+        signal: controller.signal,
       };
 
       if (params.body && ["POST", "PUT", "PATCH"].includes((params.method || "").toUpperCase())) {
         options.body = params.body;
       }
 
-      const response = await fetch(params.url, options);
+      let response;
+      try {
+        response = await fetch(params.url, options);
+      } finally {
+        clearTimeout(timer);
+      }
       const text = await response.text();
 
       // Truncate very long responses

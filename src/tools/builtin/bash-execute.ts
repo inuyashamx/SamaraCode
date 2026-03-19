@@ -19,7 +19,7 @@ function getShellOptions(cwd?: string, timeout?: number) {
 
 export const bashExecuteTool: Tool = {
   name: "bash_execute",
-  description: `Execute a shell command and return stdout/stderr. Platform: ${isWindows ? "Windows (PowerShell)" : process.platform + " (bash)"}. Use cross-platform commands when possible (node, npm, npx, git). Avoid platform-specific commands.`,
+  description: `Execute a shell command and return stdout/stderr. Platform: ${isWindows ? "Windows (cmd.exe)" : process.platform + " (bash)"}. Use cross-platform commands when possible (node, npm, npx, git). Avoid platform-specific commands.`,
   category: "system",
   builtin: true,
   parameters: [
@@ -42,10 +42,10 @@ export const bashExecuteTool: Tool = {
     } catch (err: any) {
       return {
         success: false,
-        error: err.message?.slice(0, 500),
+        error: err.message?.slice(0, 1000),
         data: {
-          stdout: err.stdout?.trim()?.slice(0, 2000) || "",
-          stderr: err.stderr?.trim()?.slice(0, 2000) || "",
+          stdout: err.stdout?.trim()?.slice(0, 4000) || "",
+          stderr: err.stderr?.trim()?.slice(0, 4000) || "",
           code: err.code,
         },
       };

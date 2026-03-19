@@ -72,20 +72,24 @@ export const gitStatusTool: Tool = {
 
 export const gitDiffTool: Tool = {
   name: "git_diff",
-  description: "Return the git diff for the working tree or staged changes.",
+  description: "Return the git diff for the working tree or staged changes. Output is truncated to max_chars to prevent context overflow.",
   category: "git",
   builtin: true,
   parameters: [
     { name: "staged", type: "boolean", description: "If true, show staged (cached) diff instead of working-tree diff", required: false, default: false },
     { name: "file", type: "string", description: "Limit diff to a specific file or path", required: false },
     { name: "cwd", type: "string", description: "Path to the git repository (default: current working directory)", required: false },
+    { name: "max_chars", type: "number", description: "Max characters to return (default: 10000). Prevents context overflow on large diffs.", required: false, default: 10000 },
   ],
   async execute(params): Promise<ToolResult> {
     try {
       const stagedFlag = params.staged ? "--staged" : "";
       const fileArg = params.file ? `-- "${params.file}"` : "";
       const { stdout } = await runGit(`diff ${stagedFlag} ${fileArg}`.trim(), params.cwd);
-      return { success: true, data: { diff: stdout } };
+      const maxChars = params.max_chars || 10000;
+      const truncated = stdout.length > maxChars;
+      const diff = truncated ? stdout.slice(0, maxChars) + "\n...[truncated — use file param to see specific file diffs]" : stdout;
+      return { success: true, data: { diff, truncated, totalLength: stdout.length } };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -114,11 +118,12 @@ interface Commit {
   message: string;
 }
 
+const GIT_LOG_SEPARATOR = "<<§§COMMIT§§>>";
+
 function parseGitLog(raw: string): Commit[] {
   if (!raw.trim()) return [];
-  const SEPARATOR = "---COMMIT---";
   return raw
-    .split(SEPARATOR)
+    .split(GIT_LOG_SEPARATOR)
     .map((block) => block.trim())
     .filter(Boolean)
     .map((block) => {
@@ -148,7 +153,7 @@ export const gitLogTool: Tool = {
     try {
       const count = params.count || 10;
       const branchArg = params.branch ? params.branch : "";
-      const format = "%H%n%h%n%an%n%ai%n%s---COMMIT---";
+      const format = `%H%n%h%n%an%n%ai%n%s${GIT_LOG_SEPARATOR}`;
       const { stdout } = await runGit(
         `log -n ${count} --format="${format}" ${branchArg}`.trim(),
         params.cwd
@@ -175,7 +180,7 @@ export const gitLogTool: Tool = {
 
 export const gitCommitTool: Tool = {
   name: "git_commit",
-  description: "Stage specified files (or all changes) and create a git commit with the given message.",
+  description: "Stage specified files and create a git commit. IMPORTANT: If files array is empty/omitted, stages ALL changes (git add -A). Always specify files explicitly to avoid committing unintended changes.",
   category: "git",
   builtin: true,
   parameters: [

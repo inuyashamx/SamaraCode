@@ -94,7 +94,9 @@ export class GeminiProvider implements LLMProvider {
     const data = (await response.json()) as any;
 
     if (!response.ok) {
-      throw new Error(`Gemini error: ${data.error?.message || JSON.stringify(data)}`);
+      // Sanitize error — never leak API key
+      const errMsg = data.error?.message || JSON.stringify(data);
+      throw new Error(`Gemini error: ${errMsg.replace(/key=[^&\s]+/g, "key=***")}`);
     }
 
     const candidate = data.candidates?.[0];

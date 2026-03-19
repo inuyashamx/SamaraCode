@@ -18,9 +18,12 @@ function fixEscapedQuotes(text: string, filePath: string): string {
 export const fileEditTool: Tool = {
   name: "file_edit",
   description: `Edit a file. Two modes:
-1) LINE MODE (recommended): Provide start_line + new_string to replace lines from start_line to end_line (or insert after start_line if insert_after=true).
-2) STRING MODE: Provide old_string + new_string to find-and-replace exact text.
-Line mode is more reliable for large files. Always use file_read first to see the current content.`,
+1) LINE MODE (recommended):
+   - REPLACE range: start_line + end_line + new_string → replaces lines start_line to end_line
+   - REPLACE single: start_line + new_string (no end_line, no insert_after) → replaces just that one line
+   - INSERT after: start_line + new_string + insert_after=true → inserts new lines AFTER start_line
+2) STRING MODE: old_string + new_string → find exact text and replace it.
+Always use file_read first to see line numbers.`,
   category: "filesystem",
   builtin: true,
   parameters: [
@@ -50,6 +53,9 @@ Line mode is more reliable for large files. Always use file_read first to see th
         if (params.end_line && params.end_line > 0) {
           // REPLACE mode: both start_line and end_line given — replace that range
           const end = Math.min(params.end_line, lines.length);
+          if (end < start) {
+            return { success: false, error: `end_line (${end}) must be >= start_line (${start})` };
+          }
           const removed = end - start + 1;
           lines.splice(start - 1, removed, ...newLines);
           await fs.writeFile(filePath, lines.join("\n"), "utf-8");
@@ -59,12 +65,22 @@ Line mode is more reliable for large files. Always use file_read first to see th
           };
         }
 
-        // INSERT mode: only start_line given (or insert_after=true) — insert after that line
-        lines.splice(start, 0, ...newLines);
+        if (params.insert_after) {
+          // INSERT AFTER mode: insert new lines after start_line
+          lines.splice(start, 0, ...newLines);
+          await fs.writeFile(filePath, lines.join("\n"), "utf-8");
+          return {
+            success: true,
+            data: `Inserted ${newLines.length} lines after line ${start} in ${filePath}`,
+          };
+        }
+
+        // SINGLE LINE REPLACE mode: only start_line given, no insert_after — replace that single line
+        lines.splice(start - 1, 1, ...newLines);
         await fs.writeFile(filePath, lines.join("\n"), "utf-8");
         return {
           success: true,
-          data: `Inserted ${newLines.length} lines after line ${start} in ${filePath}`,
+          data: `Replaced line ${start} with ${newLines.length} lines in ${filePath}`,
         };
       }
 

@@ -114,9 +114,15 @@ export const projectInfoTool: Tool = {
           const versionMatch = content.match(/^\s*version\s*=\s*"([^"]+)"/m);
           if (nameMatch) name = nameMatch[1];
           if (versionMatch) version = versionMatch[1];
-          const depMatches = content.match(/^\[dependencies\]([\s\S]*?)(?=^\[|\z)/m);
-          if (depMatches) {
-            dependenciesCount = (depMatches[1].match(/^\s*\w+\s*=/gm) || []).length;
+          // Count deps under [dependencies] and [dev-dependencies] sections
+          const depSections = content.match(/^\[(dev-)?dependencies\]([\s\S]*?)(?=^\[|$)/gm) || [];
+          for (const section of depSections) {
+            const lines = section.split("\n").slice(1); // skip the [dependencies] header
+            for (const line of lines) {
+              if (line.trim() && !line.trim().startsWith("#") && !line.trim().startsWith("[") && line.includes("=")) {
+                dependenciesCount++;
+              }
+            }
           }
         }
       } else if (hasPyproject || hasRequirements) {

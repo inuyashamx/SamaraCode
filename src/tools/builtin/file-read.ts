@@ -2,11 +2,11 @@ import { Tool, ToolResult } from "../types.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-const MAX_LINES_DEFAULT = 500;
+const MAX_LINES_DEFAULT = 300;
 
 export const fileReadTool: Tool = {
   name: "file_read",
-  description: "Read the contents of a file. Use start_line/end_line to read specific sections and save tokens. Files over 300 lines are truncated by default — use max_lines to override.",
+  description: "Read the contents of a file. WARNING: Output is truncated at 300 lines by default. For large files, use start_line/end_line to read specific sections, or set max_lines higher (e.g. max_lines=1000). The header shows total line count so you know if the file was truncated.",
   category: "filesystem",
   builtin: true,
   parameters: [

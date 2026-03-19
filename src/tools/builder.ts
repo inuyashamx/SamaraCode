@@ -135,7 +135,13 @@ export class ToolBuilder {
 
     for (const test of tests) {
       try {
-        const result = await executeFn(test.input);
+        // Run with timeout to prevent hangs from infinite loops
+        const result = await Promise.race([
+          executeFn(test.input),
+          new Promise<ToolResult>((_, reject) =>
+            setTimeout(() => reject(new Error("Test timed out after 30s")), 30000)
+          ),
+        ]);
         if (test.validate(result)) {
           passed++;
           console.log(`    ✓ ${test.name}`);

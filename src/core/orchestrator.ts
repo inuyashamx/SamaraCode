@@ -8,6 +8,7 @@ import { TaskRunner } from "./task-runner.js";
 import { SubAgent, SubAgentConfig } from "./sub-agent.js";
 import { Planner, Plan } from "./planner.js";
 import { AuditLog } from "./audit.js";
+import { AGENT_ROLES, getAgentRole, listAgentRoles } from "./agent-roles.js";
 
 export interface OrchestratorConfig {
   autonomyLevel: 0 | 1 | 2 | 3;
@@ -29,13 +30,26 @@ export interface TokenEntry {
 }
 
 // Pricing per 1M tokens (input/output) — with billing enabled, pay-as-you-go rates
+// Pricing per 1M tokens (input/output)
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  // Gemini
   "gemini-3.1-flash-lite-preview": { input: 0.075, output: 0.30 },
   "gemini-2.5-flash": { input: 0.15, output: 0.60 },
   "gemini-2.5-pro": { input: 1.25, output: 10.0 },
+  // Claude
+  "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
+  "claude-opus-4-6": { input: 15.0, output: 75.0 },
+  "claude-haiku-4-5-20251001": { input: 0.80, output: 4.0 },
+  // OpenAI
+  "gpt-4o": { input: 2.50, output: 10.0 },
+  "gpt-4o-mini": { input: 0.15, output: 0.60 },
+  "o3-mini": { input: 1.10, output: 4.40 },
+  // Deepseek
+  "deepseek-chat": { input: 0.14, output: 0.28 },
+  "deepseek-reasoner": { input: 0.55, output: 2.19 },
 };
 
-function buildSystemPrompt(toolList: string, taskSummary: string, availableProviders: string[] = []): string {
+function buildSystemPrompt(toolList: string, taskSummary: string, availableProviders: string[] = [], failureSummary: string = ""): string {
   const providerNote = `\nAvailable providers: ${availableProviders.join(", ") || "none"}`;
   return `You are SamaraCode ⚡, an orchestrator agent.
 
@@ -90,6 +104,12 @@ When spawning a developer agent after a scout:
 - The developer should NEVER need to search for files — give it everything
 - Example task: "In file src/views/eventos/reservaciones/detalle.html: 1) At line 45, add property ninosExtra:Number. 2) At line 2650 in _computeTotal(), add ninosExtra * costoPorNino to the total. 3) At line 800, add an input field bound to ninosExtra."
 
+### CRITICAL: Understand the rendering context before instructing changes
+- If the code to change is inside a JS string (e.g. '<div>' + ... + '</div>'), you MUST use JS variables (this.varName), NOT template binding ([[var]]).
+- If the code is in HTML template markup, use the framework's binding syntax ([[var]] for Polymer, {{var}} for others).
+- ALWAYS tell the developer agent WHICH context the change is in: "this is inside a JS function that builds HTML strings" or "this is in the HTML template".
+- NEVER tell an agent to use [[binding]] inside JavaScript string concatenation — it will print the literal text.
+
 ### CRITICAL: Don't ask, DO
 - BAD: "I found the observer. What should I do?" → GOOD: spawn developer with exact changes
 - BAD: "Do you want me to proceed?" → GOOD: "Here's the plan: [changes]. Spawning agents."
@@ -108,6 +128,35 @@ Implementing now." [spawn developer agent with full context]
 User: "build me a task manager in React"
 You: "Building a React task manager with CRUD and dark mode." [spawn agents immediately]
 
+## SELF-REPAIR & ARCHITECTURE EVOLUTION
+
+You can modify your own source code when you encounter limitations. This is your most powerful capability.
+
+### When to self-repair:
+1. **Sub-agent failure**: When an agent fails repeatedly at the same type of task, diagnose WHY and fix it.
+2. **Missing capability**: When you can't do something the user needs, add the capability.
+3. **Tool limitation**: When a built-in tool doesn't work correctly, fix it.
+4. **System prompt gap**: When your instructions are missing something that causes failures, update them.
+
+### Self-repair workflow:
+1. **Diagnose**: When something fails, analyze the root cause. Is it a code bug? Missing tool? Prompt issue?
+2. **Read**: Use self_read and self_list to understand the current code.
+3. **Propose**: Use self_propose with the exact fix. Include clear description of what and why.
+4. **Apply**: Use self_apply to apply the approved proposal.
+5. **Verify**: After applying, test the fix by retrying the original task.
+
+### Self-repair rules:
+- ALWAYS diagnose before proposing — don't guess.
+- ALWAYS use self_read first to get the exact current code.
+- Prefer MINIMAL changes — fix the root cause, don't rewrite everything.
+- When a sub-agent fails, first try retrying with better context. Only self-modify if the failure is structural.
+- You can also use create_tool to add new capabilities without modifying source code.
+
+### Failure recovery priority:
+1. **Retry with better context** — the simplest fix is giving the agent more information
+2. **Create a new tool** — if a capability is missing, create_tool is faster than self-modify
+3. **Self-modify** — when the architecture itself is the problem (prompts, routing, tool logic)
+
 ## WHAT NOT TO DO
 - NEVER ask "should I proceed?" — just do it after presenting the plan
 - NEVER ask questions you could answer by reading the code
@@ -116,26 +165,40 @@ You: "Building a React task manager with CRUD and dark mode." [spawn agents imme
 - NEVER dump lists of your capabilities
 - NEVER write walls of text
 - NEVER use tools directly — always spawn agents
+- NEVER ignore repeated failures — diagnose and fix the root cause
 
-## TOOLS
+## TOOLS — FIXED AGENTS (use these first)
 
-### spawn_agent — YOUR MAIN TOOL
-- name: short name (shows in sidebar)
-- role: detailed system prompt for the agent
-- task: specific task description with all context
-- tools: array of tool names: file_read, file_edit, file_write, dir_list, bash_execute, web_fetch, web_search, grep_search, memory_save, memory_load, git_status, git_diff, git_log, git_commit, git_branch, project_info
-- provider: (optional) "gemini", "claude", "openai", "deepseek"
-- model: (optional) model name like "gemini-3.1-flash-lite-preview", "claude-sonnet-4-6"
+You have dedicated agent types for the full development cycle. Each has a proven role and the right tools — you only provide the task.
 
-### CRITICAL: file_edit vs file_write
-- For modifying EXISTING files: ALWAYS give agents file_edit (replaces specific text blocks — fast, safe, works on huge files)
-- For creating NEW files: use file_write
-- file_edit only needs the exact text to find and the replacement — no need to read/rewrite the whole file
-- Developer agents for existing code should ALWAYS have: file_read, file_edit, dir_list, grep_search
+### Development cycle agents:
+- **spawn_scout** — Explore code, map structure, report with exact paths and line numbers. ALWAYS start here when modifying existing code.
+- **spawn_planner** — Create a step-by-step plan with exact files, lines, and code changes. Use after scout.
+- **spawn_developer** — Implement changes following a plan. Give it exact instructions.
+- **spawn_verifier** — Review code changes for correctness. Use AFTER developer finishes. Catches errors before the user sees them.
+- **spawn_tester** — Run builds and tests. Use after developer or verifier.
+- **spawn_debugger** — Diagnose and fix runtime errors, blank screens, broken functionality.
+- **spawn_researcher** — Search web for docs, APIs, solutions.
+- **spawn_installer** — Install dependencies, set up projects, create configs.
+
+### Standard workflow for modifying existing code:
+1. spawn_scout → understand what exists
+2. spawn_planner → create precise plan with line numbers and context
+3. spawn_developer → implement the plan
+4. spawn_verifier → check the changes are correct
+5. spawn_tester → run build/tests (if applicable)
+6. If issues → spawn_debugger → spawn_developer → spawn_verifier
+
+### spawn_agent — CUSTOM agent (only when no fixed role fits)
+- name: short name
+- role: system prompt
+- task: what to do
+- tools: array of tool names
+- Use ONLY for tasks that don't fit any fixed role above.
 
 ### COST OPTIMIZATION & MODEL SELECTION
 Use the right model for each agent's task. By default, Gemini Flash is used for all tasks.
-If Claude or GPT are configured, you can override with provider/model on spawn_agent for complex tasks.
+If Claude or GPT are configured, you can override with provider/model on any spawn tool for complex tasks.
 
 ### run_background — for shell commands (npm install, builds, tests)
 - command: shell command
@@ -161,13 +224,37 @@ ${ToolBuilder.getBlueprintSchema()}
 
 ### make_plan — for complex multi-step tasks, create a structured plan first
 
+### Self-modification tools — for fixing yourself
+- self_read: Read your own source code (e.g. self_read({ file: "src/core/orchestrator.ts" }))
+- self_list: List your own source files (e.g. self_list({ dir: "src/tools" }))
+- self_propose: Propose a code change to yourself (requires exact old_code/new_code match)
+- self_apply: Apply a proposed change (always requires user confirmation)
+Use these when you encounter a structural limitation you can't work around.
+
 ## STATE
 ${providerNote}
 Tasks: ${taskSummary}
+${failureSummary ? `Recent failures: ${failureSummary}` : ""}
 Directory: ${process.cwd()}`;
 }
 
+// Build fixed agent spawn tools from AGENT_ROLES
+const FIXED_AGENT_TOOLS = Object.entries(AGENT_ROLES).map(([key, role]) => ({
+  name: `spawn_${key}`,
+  description: `Spawn a ${key} agent: ${role.description}`,
+  parameters: {
+    type: "object" as const,
+    properties: {
+      task: { type: "string", description: "The specific task for this agent. Be detailed — include file paths, line numbers, and exact instructions." },
+      provider: { type: "string", description: "Optional: force provider (claude, openai, deepseek, gemini, ollama)" },
+      model: { type: "string", description: "Optional: force model name" },
+    },
+    required: ["task"],
+  },
+}));
+
 const VIRTUAL_TOOLS = [
+  ...FIXED_AGENT_TOOLS,
   {
     name: "create_tool",
     description: "Create a new dynamic tool from a blueprint. Built, auto-tested, and registered.",
@@ -181,7 +268,7 @@ const VIRTUAL_TOOLS = [
   },
   {
     name: "spawn_agent",
-    description: "Spawn a sub-agent to handle a task in the background with its own context and tools. Returns immediately with a task ID. You'll be notified when it completes.",
+    description: "Spawn a CUSTOM sub-agent for tasks that don't fit the fixed roles (scout, planner, developer, verifier, tester, debugger, researcher, installer). Only use this when no fixed role applies.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -273,6 +360,9 @@ export class Orchestrator extends EventEmitter {
   private previewErrors: string[] = [];
   private tokenLog: TokenEntry[] = [];
   private tokenCounter = 0;
+  private failureLog: { taskName: string; error: string; timestamp: Date }[] = [];
+  private static readonly MAX_FAILURE_LOG = 50;
+  private static readonly MAX_TOKEN_LOG = 500;
 
   constructor(
     registry: ToolRegistry,
@@ -297,11 +387,21 @@ export class Orchestrator extends EventEmitter {
         const task = this.taskRunner.getTask(event.taskId);
         const raw = event.data?.output || event.data?.stdout || (event.data ? JSON.stringify(event.data) : "done");
         const output = typeof raw === "string" ? raw : JSON.stringify(raw);
-        // Check if agent actually failed (max iterations, errors)
-        const failed = event.data?.error || (typeof raw === "string" && raw.includes("Max iterations reached"));
+        // Check if agent actually failed
+        const failed = event.data?.error || event.data?.success === false;
         if (failed) {
+          const errorMsg = event.data?.error || "agent could not find the files or complete the work";
+          this.failureLog.push({ taskName: task?.name || "unknown", error: errorMsg, timestamp: new Date() });
+          if (this.failureLog.length > Orchestrator.MAX_FAILURE_LOG) this.failureLog.shift();
+
+          // Check for repeated failures — trigger self-diagnosis hint
+          const recentFailures = this.failureLog.filter(f => Date.now() - f.timestamp.getTime() < 300000); // last 5 min
+          const selfDiagnosisHint = recentFailures.length >= 2
+            ? `\n⚠️ ${recentFailures.length} failures in the last 5 minutes. Consider diagnosing the root cause. You have self-repair tools (self_read, self_list, self_propose, self_apply) to fix structural issues, or create_tool to add missing capabilities.`
+            : "";
+
           this.pendingNotifications.push(
-            `❌ "${task?.name}" FAILED (hit max iterations without completing the task). Error: ${event.data?.error || "agent could not find the files or complete the work"}. Output: ${output.slice(0, 500)}`
+            `❌ "${task?.name}" FAILED (hit max iterations without completing the task). Error: ${errorMsg}. Output: ${output.slice(0, 500)}${selfDiagnosisHint}`
           );
         } else {
           // Pass full output (up to 2000 chars) so orchestrator has real context for next agents
@@ -311,8 +411,16 @@ export class Orchestrator extends EventEmitter {
         }
       } else if (event.type === "failed") {
         const task = this.taskRunner.getTask(event.taskId);
+        const errorMsg = typeof event.data === "string" ? event.data : JSON.stringify(event.data);
+        this.failureLog.push({ taskName: task?.name || "unknown", error: errorMsg, timestamp: new Date() });
+
+        const recentFailures = this.failureLog.filter(f => Date.now() - f.timestamp.getTime() < 300000);
+        const selfDiagnosisHint = recentFailures.length >= 2
+          ? `\n⚠️ Repeated failures detected. Use self-repair tools to diagnose and fix the root cause.`
+          : "";
+
         this.pendingNotifications.push(
-          `❌ "${task?.name}" failed: ${event.data}`
+          `❌ "${task?.name}" failed: ${errorMsg}${selfDiagnosisHint}`
         );
       }
     });
@@ -332,7 +440,11 @@ export class Orchestrator extends EventEmitter {
     }
 
     const taskSummary = this.taskRunner.getSummary();
-    const systemPrompt = buildSystemPrompt(this.registry.listForLLM(), taskSummary, this.router.getAvailableProviders().map(p => p.name));
+    const recentFailures = this.failureLog.filter(f => Date.now() - f.timestamp.getTime() < 600000);
+    const failureSummary = recentFailures.length > 0
+      ? recentFailures.map(f => `${f.taskName}: ${f.error}`).join("; ")
+      : "";
+    const systemPrompt = buildSystemPrompt(this.registry.listForLLM(), taskSummary, this.router.getAvailableProviders().map(p => p.name), failureSummary);
 
     const messages: Message[] = [
       { role: "system", content: systemPrompt },
@@ -414,7 +526,13 @@ export class Orchestrator extends EventEmitter {
         let result: ToolResult;
 
         try {
-          switch (tc.name) {
+          // Check if it's a fixed agent spawn (spawn_scout, spawn_developer, etc.)
+          const fixedAgentMatch = tc.name.match(/^spawn_(.+)$/);
+          const fixedRole = fixedAgentMatch ? getAgentRole(fixedAgentMatch[1]) : null;
+
+          if (fixedRole) {
+            result = await this.handleSpawnFixedAgent(fixedAgentMatch![1], fixedRole, tc.arguments);
+          } else switch (tc.name) {
             case "create_tool":
               result = await this.handleCreateTool(tc.arguments);
               break;
@@ -479,10 +597,14 @@ export class Orchestrator extends EventEmitter {
         this.conversationHistory.push(toolMsg);
       }
 
-      // Refresh system prompt (tools may have changed)
+      // Refresh system prompt (tools may have changed, failures may have occurred)
+      const updatedFailures = this.failureLog.filter(f => Date.now() - f.timestamp.getTime() < 600000);
+      const updatedFailureSummary = updatedFailures.length > 0
+        ? updatedFailures.map(f => `${f.taskName}: ${f.error}`).join("; ")
+        : "";
       messages[0] = {
         role: "system",
-        content: buildSystemPrompt(this.registry.listForLLM(), this.taskRunner.getSummary(), this.router.getAvailableProviders().map(p => p.name)),
+        content: buildSystemPrompt(this.registry.listForLLM(), this.taskRunner.getSummary(), this.router.getAvailableProviders().map(p => p.name), updatedFailureSummary),
       };
     }
 
@@ -591,6 +713,56 @@ export class Orchestrator extends EventEmitter {
     };
   }
 
+  private async handleSpawnFixedAgent(type: string, role: import("./agent-roles.js").AgentRole, args: any): Promise<ToolResult> {
+    const { task, provider, model } = args;
+
+    if (!task) {
+      return { success: false, error: "Task is required for fixed agent spawn." };
+    }
+
+    if (this.config.autonomyLevel < 2 && this.config.confirmBeforeExec) {
+      const confirmed = await this.config.confirmBeforeExec(`spawn_${type}`, {
+        name: type,
+        tools: role.tools.join(", "),
+        task: task?.slice(0, 100),
+      });
+      if (!confirmed) return { success: false, error: "User denied agent spawn" };
+    }
+
+    const agentConfig: SubAgentConfig = {
+      name: type,
+      role: role.systemPrompt,
+      tools: role.tools,
+      provider,
+      model,
+      maxIterations: role.maxIterations,
+    };
+
+    const taskId = this.taskRunner.submit(
+      type,
+      `${type}: ${task.slice(0, 100)}`,
+      async (progress) => {
+        const agent = new SubAgent(agentConfig, this.registry, this.router);
+        const result = await agent.execute(task, progress);
+        return result;
+      }
+    );
+
+    const taskObj = this.taskRunner.getTask(taskId);
+    if (taskObj) {
+      taskObj.provider = provider || "gemini";
+      taskObj.model = model || "";
+    }
+
+    return {
+      success: true,
+      data: {
+        taskId,
+        message: `${type} agent spawned [${taskId}]. You'll be notified when it completes.`,
+      },
+    };
+  }
+
   private async handleRunBackground(args: any): Promise<ToolResult> {
     const { command, name } = args;
 
@@ -660,7 +832,7 @@ export class Orchestrator extends EventEmitter {
       case "git_branch": return `⎇ git branch ${a.action || "list"}`;
       case "project_info": return `📋 Scanning project at ${a.path || "."}`;
       case "create_tool": return `🔨 Creating tool: "${a.blueprint?.name || "?"}"`;
-      case "spawn_agent": return `◆ Spawning agent: "${a.name}" → ${a.task || ""}`;
+      case "spawn_agent": return `◆ Spawning custom agent: "${a.name}" → ${a.task || ""}`;
       case "run_background": return `⟳ Background: "${a.name}" → ${a.command || ""}`;
       case "make_plan": return `▦ Planning: ${a.task || ""}`;
       case "run_process": return `▶ Process: "${a.name}" → ${a.command || ""}`;
@@ -670,7 +842,14 @@ export class Orchestrator extends EventEmitter {
       case "self_list": return `📂 Listing own source: ${a.dir || "src"}`;
       case "self_propose": return `⚡ Proposing self-modification: ${a.description || ""}`;
       case "self_apply": return `⚡ Applying self-modification: ${a.proposal_id}`;
-      default: return `⚙ ${tc.name}`;
+      default: {
+        // Handle fixed agent spawns (spawn_scout, spawn_developer, etc.)
+        if (tc.name.startsWith("spawn_") && getAgentRole(tc.name.replace("spawn_", ""))) {
+          const type = tc.name.replace("spawn_", "");
+          return `◆ Spawning ${type}: ${(a.task || "").slice(0, 80)}`;
+        }
+        return `⚙ ${tc.name}`;
+      }
     }
   }
 
@@ -907,12 +1086,21 @@ export class Orchestrator extends EventEmitter {
       source,
     };
     this.tokenLog.push(entry);
+    if (this.tokenLog.length > Orchestrator.MAX_TOKEN_LOG) this.tokenLog.shift();
     this.emit("token_update", entry);
     return entry;
   }
 
   getTokenLog(): TokenEntry[] {
     return [...this.tokenLog];
+  }
+
+  getFailureLog(): { taskName: string; error: string; timestamp: Date }[] {
+    return [...this.failureLog];
+  }
+
+  clearFailureLog(): void {
+    this.failureLog = [];
   }
 
   getTokenSummary(): { total_input: number; total_output: number; total_tokens: number; total_cost: number; entries: number } {

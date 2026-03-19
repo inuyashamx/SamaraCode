@@ -94,7 +94,16 @@ export class TaskRunner extends EventEmitter {
     };
 
     if (this.running < this.maxConcurrent) {
-      wrappedFn().catch(() => {}); // Error is captured in task
+      wrappedFn().catch((err) => {
+        // Error already captured in task.error via the try/catch inside wrappedFn
+        // This catch prevents unhandled promise rejection
+        if (task.status !== "failed") {
+          task.status = "failed";
+          task.error = err?.message || "Unknown error";
+          task.completedAt = new Date();
+          this.emit("task", { taskId: id, type: "failed", data: task.error } as TaskEvent);
+        }
+      });
     } else {
       this.queue.push({ task, fn: wrappedFn });
     }
@@ -105,7 +114,14 @@ export class TaskRunner extends EventEmitter {
   private processQueue(): void {
     while (this.queue.length > 0 && this.running < this.maxConcurrent) {
       const next = this.queue.shift()!;
-      next.fn().catch(() => {});
+      next.fn().catch((err) => {
+        if (next.task.status !== "failed") {
+          next.task.status = "failed";
+          next.task.error = err?.message || "Unknown error";
+          next.task.completedAt = new Date();
+          this.emit("task", { taskId: next.task.id, type: "failed", data: next.task.error } as TaskEvent);
+        }
+      });
     }
   }
 
@@ -171,7 +187,7 @@ export class TaskRunner extends EventEmitter {
         if (!urlEmitted) {
           // Strip ANSI escape codes before matching
           const clean = line.replace(/\x1b\[[0-9;]*m/g, "");
-          const urlMatch = clean.match(/https?:\/\/localhost[:\d]*/);
+          const urlMatch = clean.match(/https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/);
           if (urlMatch) {
             urlEmitted = true;
             const originalUrl = urlMatch[0];

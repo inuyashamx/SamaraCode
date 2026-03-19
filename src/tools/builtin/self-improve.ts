@@ -8,6 +8,21 @@ function getSamaraCodeSrcDir(): string {
   return path.resolve(new URL(".", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1"), "..", "..", "..");
 }
 
+async function safePath(srcDir: string, relativePath: string): Promise<{ safe: boolean; resolved: string }> {
+  const filePath = path.resolve(srcDir, relativePath);
+  // Check logical path first
+  if (!filePath.startsWith(srcDir)) return { safe: false, resolved: filePath };
+  // Resolve symlinks and check real path
+  try {
+    const realPath = await fs.realpath(filePath);
+    const realSrcDir = await fs.realpath(srcDir);
+    return { safe: realPath.startsWith(realSrcDir), resolved: realPath };
+  } catch {
+    // File doesn't exist yet (for write ops) — use logical check only
+    return { safe: filePath.startsWith(srcDir), resolved: filePath };
+  }
+}
+
 export const selfReadTool: Tool = {
   name: "self_read",
   description: "Read SamaraCode's own source code. Use this to understand how the agent works before proposing changes.",
@@ -19,10 +34,9 @@ export const selfReadTool: Tool = {
   async execute(params): Promise<ToolResult> {
     try {
       const srcDir = getSamaraCodeSrcDir();
-      const filePath = path.resolve(srcDir, params.file);
+      const { safe, resolved: filePath } = await safePath(srcDir, params.file);
 
-      // Safety: only allow reading within the SamaraCode project
-      if (!filePath.startsWith(srcDir)) {
+      if (!safe) {
         return { success: false, error: "Cannot read files outside SamaraCode source directory." };
       }
 
@@ -59,9 +73,10 @@ export const selfListTool: Tool = {
   async execute(params): Promise<ToolResult> {
     try {
       const srcDir = getSamaraCodeSrcDir();
+      const { safe } = await safePath(srcDir, params.dir || "src");
       const targetDir = path.resolve(srcDir, params.dir || "src");
 
-      if (!targetDir.startsWith(srcDir)) {
+      if (!safe) {
         return { success: false, error: "Cannot list files outside SamaraCode source directory." };
       }
 
@@ -110,9 +125,9 @@ export const selfProposeTool: Tool = {
   async execute(params): Promise<ToolResult> {
     try {
       const srcDir = getSamaraCodeSrcDir();
-      const filePath = path.resolve(srcDir, params.file);
+      const { safe, resolved: filePath } = await safePath(srcDir, params.file);
 
-      if (!filePath.startsWith(srcDir)) {
+      if (!safe) {
         return { success: false, error: "Cannot modify files outside SamaraCode source directory." };
       }
 
@@ -200,6 +215,12 @@ export const selfApplyTool: Tool = {
         return { success: false, error: "Code has changed since proposal was created. Create a new proposal." };
       }
 
+      // Create backup before modifying
+      const backupDir = path.join(getSamaraCodeSrcDir(), "data", "backups");
+      await fs.mkdir(backupDir, { recursive: true });
+      const backupFile = path.join(backupDir, `${params.proposal_id}_${path.basename(proposal.filePath)}.bak`);
+      await fs.writeFile(backupFile, content, "utf-8");
+
       const newContent = content.replace(proposal.old_code, proposal.new_code);
       await fs.writeFile(proposal.filePath, newContent, "utf-8");
 
@@ -211,7 +232,8 @@ export const selfApplyTool: Tool = {
         data: {
           message: `Applied: ${proposal.description}`,
           file: proposal.file,
-          note: "Restart SamaraCode to load the changes.",
+          backup: backupFile,
+          note: "Restart SamaraCode to load the changes. Backup saved.",
         },
       };
     } catch (err: any) {

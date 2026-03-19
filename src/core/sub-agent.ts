@@ -42,12 +42,17 @@ export class SubAgent {
     this.router = router;
 
     // Create a local registry with only the tools this agent needs
-    this.localRegistry = new ToolRegistry("data/tools");
+    // Use a dummy path — we copy tools from parent, not from disk
+    this.localRegistry = new ToolRegistry("_agent_local");
     for (const toolName of config.tools) {
       const tool = parentRegistry.get(toolName);
       if (tool) {
         this.localRegistry.register(tool);
       }
+    }
+    // If no tools matched, warn — the agent will be useless
+    if (this.localRegistry.getAll().length === 0 && config.tools.length > 0) {
+      console.warn(`  ⚠ Agent "${config.name}" has 0 matching tools. Requested: ${config.tools.join(", ")}`);
     }
   }
 
@@ -85,13 +90,27 @@ ${this.localRegistry.listForLLM()}
 - If file_read returns ENOENT, STOP guessing. Use dir_list on the parent directory to find the correct path.
 - NEVER try more than 2 file_read attempts without using dir_list first.
 
+## CRITICAL — structural scan BEFORE editing
+Before making ANY edit to a file, you MUST understand its structure:
+1. **First read**: Read the first 50 lines to understand the file type, imports, and overall structure.
+2. **Locate zones**: For large files (>200 lines), use grep_search to find key landmarks:
+   - For HTML components: find \`<template>\`, \`<script>\`, \`properties:\`, \`@media print\`, the function you need to edit.
+   - For JS files: find the class/function definition, exports, the method you need to change.
+3. **Understand the context of your target line**: Before editing line N, read at least 50 lines around it (N-25 to N+25) to understand:
+   - Are you inside a JS function? Inside a string concatenation? Inside HTML template markup?
+   - What variables are available in this scope?
+   - What is the surrounding code doing?
+4. **Only then edit**: Now you have enough context to make a correct change.
+
+NEVER jump directly to a line number and edit it without understanding what surrounds it.
+
 ## CRITICAL — editing existing files
 - To modify existing files, ALWAYS use file_edit instead of file_write.
 - file_edit has TWO modes:
   1. REPLACE: Use start_line + end_line + new_string to replace a range of lines.
   2. INSERT: Use start_line + new_string (WITHOUT end_line) to insert new lines AFTER that line.
 - ALWAYS prefer INSERT mode when adding new fields/properties/lines. Only use REPLACE when you need to change existing lines.
-- Workflow: 1) file_read to see the line numbers, 2) file_edit with line numbers, 3) file_read AGAIN to verify.
+- Workflow: 1) structural scan, 2) file_read target area with context, 3) file_edit, 4) file_read AGAIN to verify.
 - To INSERT after line 875: file_edit({ path: "file.html", start_line: 875, new_string: "new lines" })
 - To REPLACE lines 867-875: file_edit({ path: "file.html", start_line: 867, end_line: 875, new_string: "replacement" })
 - NEVER use file_write to rewrite an entire large file.
@@ -116,6 +135,32 @@ ${this.localRegistry.listForLLM()}
 - If you see backslash-escaped quotes (\\" or \\') in the file content, REWRITE the file immediately with proper quotes.
 - JSX example — CORRECT: <div className="flex"> — WRONG: <div className=\\"flex\\">
 - This is the #1 cause of build errors. ALWAYS verify your writes.
+
+## CRITICAL — Web Component / Polymer HTML files
+When editing .html files that contain \`<dom-module>\`, \`<link rel="import">\`, or Polymer component definitions:
+
+### File structure — understand the zones:
+1. **Imports zone** (top): Only \`<link rel="import">\` tags. NEVER put HTML elements here.
+2. **\`<dom-module>\` → \`<template>\`**: This is where HTML markup and \`<style>\` go.
+3. **\`<script>\`**: This is where JS (Polymer({ ... })) goes — properties, observers, methods.
+
+### Data binding rules:
+- \`[[variable]]\` and \`{{variable}}\` are Polymer template binding syntax.
+- They ONLY work inside the \`<template>\` section of the HTML.
+- They NEVER work inside JavaScript strings. In JS, use \`this.variable\` instead.
+- BAD: \`'<div>' + '[[nombre]]' + '</div>'\` → the literal text "[[nombre]]" will appear.
+- GOOD: \`'<div>' + this.nombre + '</div>'\` → the actual value will appear.
+
+### Common mistakes to AVOID:
+- Putting \`<iron-ajax>\`, \`<paper-dialog>\`, or any element OUTSIDE of \`<template>\`. They MUST go inside.
+- Using \`[[binding]]\` in JS string concatenation — use \`this.propertyName\` instead.
+- Adding a property without initializing it (add an observer or set it in \`attached\`/\`ready\`).
+- Adding elements in the imports section — imports are ONLY for \`<link rel="import">\`.
+
+### When making a value dynamic in a print/HTML-string function:
+1. First, ensure the property exists and is populated (check observers, attached, API calls).
+2. In JS string concatenation, reference it as \`this.propertyName\`, NOT \`[[propertyName]]\`.
+3. Example: \`'<div>' + this.nombreEmpresa + '</div>'\`
 
 ## Shell commands — IMPORTANT
 - ALWAYS prefer cross-platform commands: node, npm, npx, git, tsc, etc.
@@ -240,29 +285,5 @@ ${this.localRegistry.listForLLM()}
   }
 }
 
-// Factory: create common sub-agent configurations
-export const AgentTemplates = {
-  researcher: (topic: string): SubAgentConfig => ({
-    name: `researcher-${Date.now()}`,
-    role: `You are a research agent. Search the web and gather information about: ${topic}. Summarize findings clearly with sources.`,
-    tools: ["web_search", "web_fetch", "memory_save"],
-  }),
-
-  coder: (task: string): SubAgentConfig => ({
-    name: `coder-${Date.now()}`,
-    role: `You are a coding agent. Write, read, and modify code to accomplish tasks. Test your work.`,
-    tools: ["file_read", "file_write", "dir_list", "bash_execute", "grep_search"],
-  }),
-
-  installer: (what: string): SubAgentConfig => ({
-    name: `installer-${Date.now()}`,
-    role: `You are an installer agent. Install and configure: ${what}. Verify the installation works.`,
-    tools: ["bash_execute", "file_write", "file_read", "web_search", "web_fetch"],
-  }),
-
-  analyst: (task: string): SubAgentConfig => ({
-    name: `analyst-${Date.now()}`,
-    role: `You are an analysis agent. Read code and files, search for patterns, and provide detailed analysis.`,
-    tools: ["file_read", "dir_list", "grep_search", "bash_execute"],
-  }),
-};
+// Fixed agent roles are now defined in agent-roles.ts
+// Use spawn_scout, spawn_developer, etc. from the orchestrator.
