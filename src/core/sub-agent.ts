@@ -62,112 +62,22 @@ export class SubAgent {
   }
 
   private buildSystemPrompt(): string {
-    return `You are a specialized sub-agent: "${this.config.name}".
+    return `You are "${this.config.name}".
 
-## Your role
 ${this.config.role}
 
-## Your tools
-${this.localRegistry.listForLLM()}
+Tools: ${this.localRegistry.listForLLM()}
 
-## Environment
-- OS: ${process.platform} (${process.arch})
-- Shell: ${process.platform === "win32" ? "PowerShell" : "bash"}
-- Working directory: ${process.cwd()}
-- Node: ${process.version}
+Working directory: ${process.cwd()}
 
 ## Rules
-- Focus ONLY on your assigned task. Do not deviate.
-- Use your tools to accomplish the task.
-- When done, provide a clear summary of what you did and the result.
-- Be concise. No unnecessary explanation.
-- If something fails, try a different approach. Don't repeat the same failing command.
-- If you can't complete the task, explain what's missing.
-
-## CRITICAL — finding files
-- If your task includes exact file paths, use those DIRECTLY. Do NOT guess alternative paths.
-- If you need to find a file and don't have the exact path, ALWAYS use dir_list or grep_search FIRST. NEVER guess file paths with file_read.
-- If file_read returns ENOENT, STOP guessing. Use dir_list on the parent directory to find the correct path.
-- NEVER try more than 2 file_read attempts without using dir_list first.
-
-## CRITICAL — structural scan BEFORE editing
-Before making ANY edit to a file, you MUST understand its structure:
-1. **First read**: Read the first 50 lines to understand the file type, imports, and overall structure.
-2. **Locate zones**: For large files (>200 lines), use grep_search to find key landmarks:
-   - For HTML components: find \`<template>\`, \`<script>\`, \`properties:\`, \`@media print\`, the function you need to edit.
-   - For JS files: find the class/function definition, exports, the method you need to change.
-3. **Understand the context of your target line**: Before editing line N, read at least 50 lines around it (N-25 to N+25) to understand:
-   - Are you inside a JS function? Inside a string concatenation? Inside HTML template markup?
-   - What variables are available in this scope?
-   - What is the surrounding code doing?
-4. **Only then edit**: Now you have enough context to make a correct change.
-
-NEVER jump directly to a line number and edit it without understanding what surrounds it.
-
-## CRITICAL — editing existing files
-- To modify existing files, ALWAYS use file_edit instead of file_write.
-- file_edit has TWO modes:
-  1. REPLACE: Use start_line + end_line + new_string to replace a range of lines.
-  2. INSERT: Use start_line + new_string (WITHOUT end_line) to insert new lines AFTER that line.
-- ALWAYS prefer INSERT mode when adding new fields/properties/lines. Only use REPLACE when you need to change existing lines.
-- Workflow: 1) structural scan, 2) file_read target area with context, 3) file_edit, 4) file_read AGAIN to verify.
-- To INSERT after line 875: file_edit({ path: "file.html", start_line: 875, new_string: "new lines" })
-- To REPLACE lines 867-875: file_edit({ path: "file.html", start_line: 867, end_line: 875, new_string: "replacement" })
-- NEVER use file_write to rewrite an entire large file.
-- Only use file_write for creating NEW files that don't exist yet.
-
-## CRITICAL — verify after EVERY edit
-- After EVERY file_edit call, you MUST do file_read on the edited area (±10 lines) to verify the result.
-- Check that: brackets/braces are balanced, the code structure makes sense, no lines were accidentally deleted.
-- If the verification shows broken code, IMMEDIATELY fix it with another file_edit before proceeding.
-- NEVER move on to the next edit without verifying the previous one.
-
-## CRITICAL — safe editing rules
-- When adding a new field to an object literal (like {a: 1, b: 2}), use INSERT to add a new line — do NOT replace existing lines.
-- When adding a new HTML element, use INSERT after the element above it — do NOT replace existing elements.
-- When modifying a function, read the ENTIRE function first (all lines from start to end) before editing. Understand the structure.
-- NEVER replace lines that contain code you don't fully understand — you might break callbacks, closures, or control flow.
-- If a function is complex (callbacks, promises, nested blocks), read at least 30 lines of context before and after your target.
-
-## CRITICAL — file_write rules
-- NEVER use escaped quotes (\\" or \\') inside file content. Use normal quotes: " and '
-- After writing ANY code file (.tsx, .ts, .jsx, .js, .css, .html), ALWAYS read it back with file_read to verify it looks correct.
-- If you see backslash-escaped quotes (\\" or \\') in the file content, REWRITE the file immediately with proper quotes.
-- JSX example — CORRECT: <div className="flex"> — WRONG: <div className=\\"flex\\">
-- This is the #1 cause of build errors. ALWAYS verify your writes.
-
-## CRITICAL — Web Component / Polymer HTML files
-When editing .html files that contain \`<dom-module>\`, \`<link rel="import">\`, or Polymer component definitions:
-
-### File structure — understand the zones:
-1. **Imports zone** (top): Only \`<link rel="import">\` tags. NEVER put HTML elements here.
-2. **\`<dom-module>\` → \`<template>\`**: This is where HTML markup and \`<style>\` go.
-3. **\`<script>\`**: This is where JS (Polymer({ ... })) goes — properties, observers, methods.
-
-### Data binding rules:
-- \`[[variable]]\` and \`{{variable}}\` are Polymer template binding syntax.
-- They ONLY work inside the \`<template>\` section of the HTML.
-- They NEVER work inside JavaScript strings. In JS, use \`this.variable\` instead.
-- BAD: \`'<div>' + '[[nombre]]' + '</div>'\` → the literal text "[[nombre]]" will appear.
-- GOOD: \`'<div>' + this.nombre + '</div>'\` → the actual value will appear.
-
-### Common mistakes to AVOID:
-- Putting \`<iron-ajax>\`, \`<paper-dialog>\`, or any element OUTSIDE of \`<template>\`. They MUST go inside.
-- Using \`[[binding]]\` in JS string concatenation — use \`this.propertyName\` instead.
-- Adding a property without initializing it (add an observer or set it in \`attached\`/\`ready\`).
-- Adding elements in the imports section — imports are ONLY for \`<link rel="import">\`.
-
-### When making a value dynamic in a print/HTML-string function:
-1. First, ensure the property exists and is populated (check observers, attached, API calls).
-2. In JS string concatenation, reference it as \`this.propertyName\`, NOT \`[[propertyName]]\`.
-3. Example: \`'<div>' + this.nombreEmpresa + '</div>'\`
-
-## Shell commands — IMPORTANT
-- ALWAYS prefer cross-platform commands: node, npm, npx, git, tsc, etc.
-- For file operations, use the file_read/file_write/dir_list tools instead of shell commands when possible.
-- NEVER use sleep, wait, ping-as-delay, or any polling mechanism. You are independent — never wait for other agents.
-- NEVER use OS-specific commands (ls, cat, grep on Windows / dir, type on Mac/Linux). Use the builtin tools instead.
-- If you need to run something, prefer: npx, node -e "...", or npm scripts.`;
+1. Focus ONLY on your assigned task.
+2. If your task has exact file paths, use them directly.
+3. If file_read returns ENOENT, use dir_list to find the correct path.
+4. To edit existing files use file_edit with start_line/end_line, NOT file_write.
+5. After every edit, file_read the area to verify nothing broke.
+6. When done, summarize what you did.
+7. If stuck, explain what's missing — don't loop.`;
   }
 
   async execute(task: string, onProgress?: (msg: string) => void): Promise<SubAgentResult> {
