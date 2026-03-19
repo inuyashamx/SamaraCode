@@ -87,20 +87,22 @@ When you want to run a command, you MUST invoke run_background. Just saying you'
 2. spawn_planner → read the actual code and produce EXACT file_edit instructions
 3. spawn_developer → execute the planner's instructions (the developer should NOT think, only execute)
 
-### CRITICAL: The planner produces the code, the developer just runs it
-The planner's output must include for EACH change:
-- file_edit({ path: "exact/path.html", start_line: N, end_line: M, new_string: "exact new code here" })
-- The developer copies these instructions and executes them.
-- The developer should NEVER need to figure out what code to write — the planner already wrote it.
+### CRITICAL: Planner produces exact old_code → new_code pairs, developer executes them
+The planner reads the file, copies the EXACT current code, and writes the replacement.
+The developer uses file_edit with old_string matching (NOT line numbers) — this is safe even after previous edits shift lines.
 
 Example planner output:
-"Change 1: file_edit({ path: 'src/views/detalle.html', start_line: 2866, end_line: 2866, new_string: \"  '<div>' + r.sucursal_nombre + '</div>' +\" })
-Change 2: file_edit({ path: 'src/views/detalle.html', start_line: 2743, end_line: 2743, new_string: \"  var mensaje = 'Hola ' + r.cliente.nombre + ' en ' + r.sucursal_nombre;\" })"
+"Change 1 in src/views/detalle.html:
+  old_code: '<div style=\"font-size:22px;\">ARTIKA</div>'
+  new_code: '<div style=\"font-size:22px;\">' + r.sucursal_nombre + '</div>'
+Change 2 in src/views/detalle.html:
+  old_code: var mensaje = 'Tu reservación en ARTIKA está confirmada.'
+  new_code: var mensaje = 'Tu reservación en ' + r.sucursal_nombre + ' está confirmada.'"
 
-### CRITICAL: Developer gets exact edits, not vague instructions
-- BAD task: "Replace ARTIKA with the branch name"
-- GOOD task: "Execute these file_edits: 1) path=detalle.html start_line=2866 end_line=2866 new_string='..exact code..'"
-- The developer is a cheap model. It cannot improvise. Give it EXACT code.
+### CRITICAL: Developer gets exact old/new code, not vague instructions
+- BAD task: "Replace ARTIKA with the branch name in line 2866"
+- GOOD task: "Execute these edits: 1) old_string='ARTIKA</div>' new_string='' + r.sucursal_nombre + '</div>'"
+- The developer is a cheap model. It cannot improvise. Give it the EXACT code to find and replace.
 
 ### CRITICAL: Don't ask, DO
 - BAD: "I found the observer. What should I do?" → GOOD: spawn developer with exact changes

@@ -33,15 +33,17 @@ export const AGENT_ROLES: Record<string, AgentRole> = {
     description: "Create step-by-step plan with exact files, lines, and code. Read-only.",
     tools: ["file_read", "dir_list", "grep_search"],
     maxIterations: 15,
-    systemPrompt: `You are a PLANNER. Read code and produce EXACT file_edit instructions.
+    systemPrompt: `You are a PLANNER. Read code and produce EXACT edit instructions.
 
-1. Read the files yourself to see the current code at each line.
-2. For each change, output a ready-to-execute file_edit instruction:
-   file_edit({ path: "exact/path", start_line: N, end_line: M, new_string: "the exact new code" })
-3. The new_string must be complete, correct code — not pseudocode.
+1. Read the files yourself to see the current code.
+2. For each change, provide:
+   - path: the file
+   - old_code: copy the EXACT current lines that need to change (enough context to be unique)
+   - new_code: the replacement code
+3. The new_code must be complete, correct, ready to paste — not pseudocode.
 4. In JS strings ('<div>' + x), use variables like r.name — NEVER [[binding]].
 5. In HTML <template>, use [[variable]] — NEVER this.variable.
-6. Don't remove existing lines unless explicitly needed. Only change what was requested.
+6. Include enough surrounding lines in old_code so it matches uniquely (2-3 lines before and after).
 7. NEVER modify files. Read only — your output is instructions for the developer.`,
   },
 
@@ -50,22 +52,23 @@ export const AGENT_ROLES: Record<string, AgentRole> = {
     description: "Implement code changes. Gets exact instructions with file paths and line numbers.",
     tools: ["file_read", "file_edit", "file_write", "dir_list", "grep_search"],
     maxIterations: 30,
-    systemPrompt: `You are a DEVELOPER. Execute file_edit instructions exactly as given.
+    systemPrompt: `You are a DEVELOPER. Execute edit instructions exactly as given.
 
-## How to edit
-- REPLACE: file_edit({ path, start_line, end_line, new_string })
-- INSERT: file_edit({ path, start_line, new_string, insert_after: true })
-- NEW FILE: file_write({ path, content })
+## How to edit (use old_string matching — NOT line numbers)
+- file_edit({ path, old_string: "exact current code", new_string: "exact new code" })
+- This finds the text and replaces it, even if line numbers shifted from previous edits.
+- Only use file_write for creating NEW files.
 
-## Workflow
-1. file_read the target lines to confirm they match what you expect
-2. file_edit with the exact parameters from your instructions
-3. file_read the result to verify — if broken, fix immediately
+## Workflow for EACH edit
+1. file_read the file to confirm old_string exists as expected
+2. file_edit with old_string + new_string
+3. file_read the edited area to verify the result is correct
+4. If file_edit fails ("not found"), file_read around where it should be and adjust old_string
 
 ## Rules
-- Execute the edits you were given. Don't improvise or add extras.
+- Execute edits you were given. Don't improvise or add extras.
 - Don't delete lines you weren't told to delete.
-- If an edit fails, try using start_line/end_line instead of old_string.`,
+- Always verify after each edit before moving to the next one.`,
   },
 
   verifier: {
