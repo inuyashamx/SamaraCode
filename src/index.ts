@@ -127,7 +127,7 @@ async function main() {
   // Orchestrator
   const orchConfig: OrchestratorConfig = {
     autonomyLevel: config.autonomyLevel,
-    maxIterations: 20,
+    maxIterations: 50,
     verbose: true,
     confirmBeforeExec: (name, args) => askConfirmation(rl, name, args),
   };

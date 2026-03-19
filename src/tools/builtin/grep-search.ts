@@ -65,7 +65,7 @@ export const grepSearchTool: Tool = {
         }
         for (const entry of entries) {
           if (matches.length >= maxResults) return;
-          if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") continue;
+          if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "bower_components" || entry.name === "dist" || entry.name === "build" || entry.name === "vendor" || entry.name === "__pycache__") continue;
 
           const fullPath = path.join(dir, entry.name);
           if (entry.isDirectory()) {

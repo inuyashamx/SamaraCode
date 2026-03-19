@@ -43,7 +43,7 @@ export function startServer(
 
   const orchConfig: OrchestratorConfig = {
     autonomyLevel: 1,
-    maxIterations: 20,
+    maxIterations: 50,
     verbose: true,
     confirmBeforeExec: confirmFn,
   };
@@ -398,6 +398,23 @@ export function startServer(
 
 function formatTool(name: string, args: Record<string, any>): string {
   switch (name) {
+    case "file_edit": {
+      const lines: string[] = [`Edit: ${args.path}`];
+      if (args.remove) {
+        lines.push(`─── Remove ───`);
+        for (const line of args.remove.split("\n").slice(0, 20)) {
+          lines.push(`- ${line}`);
+        }
+      }
+      if (args.add) {
+        lines.push(`─── Add ───`);
+        for (const line of args.add.split("\n").slice(0, 20)) {
+          lines.push(`+ ${line}`);
+        }
+      }
+      if (args.description) lines.push(args.description);
+      return lines.join("\n");
+    }
     case "file_write": return `Write: ${args.path} (${args.content?.length || 0} chars)`;
     case "bash_execute": return `Run: ${(args.command || "").slice(0, 120)}`;
     case "create_tool": return `Create tool: ${args.blueprint?.name || args.name || "?"}`;

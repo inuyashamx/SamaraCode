@@ -135,9 +135,19 @@ Always use file_read first to see line numbers.`,
 
       const oldLineCount = matchStr.split("\n").length;
       const newLineCount = fixedNew.split("\n").length;
+
+      // Show context around the edit so the agent can spot broken syntax immediately
+      const newLines = newContent.split("\n");
+      const editStart = content.split(matchStr)[0].split("\n").length; // line where the edit starts
+      const contextStart = Math.max(0, editStart - 3);
+      const contextEnd = Math.min(newLines.length, editStart + newLineCount + 3);
+      const context = newLines.slice(contextStart, contextEnd)
+        .map((line, i) => `${contextStart + i + 1}: ${line}`)
+        .join("\n");
+
       return {
         success: true,
-        data: `Replaced ${oldLineCount} lines with ${newLineCount} lines in ${filePath}`,
+        data: `Replaced ${oldLineCount} lines with ${newLineCount} lines in ${filePath}\n\nContext around edit:\n${context}`,
       };
     } catch (err: any) {
       return { success: false, error: err.message };

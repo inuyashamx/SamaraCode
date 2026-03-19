@@ -3,7 +3,7 @@ import { ToolDefinition } from "../../tools/types.js";
 
 export class GeminiProvider implements LLMProvider {
   name = "gemini";
-  models = ["gemini-3.1-flash-lite-preview"];
+  models = ["gemini-2.5-flash", "gemini-3.1-flash-lite-preview"];
   private apiKey: string = "";
 
   async isAvailable(): Promise<boolean> {
@@ -20,7 +20,7 @@ export class GeminiProvider implements LLMProvider {
   async chat(messages: Message[], tools?: ToolDefinition[], model?: string): Promise<LLMResponse> {
     if (!this.apiKey) throw new Error("Gemini not initialized");
 
-    const modelName = model || "gemini-3.1-flash-lite-preview";
+    const modelName = model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${this.apiKey}`;
 
     // Convert messages to Gemini format
@@ -101,6 +101,17 @@ export class GeminiProvider implements LLMProvider {
 
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts || [];
+
+    // Debug: log what the API returned
+    if (parts.length > 0) {
+      const partTypes = parts.map((p: any) => {
+        if (p.functionCall) return `functionCall:${p.functionCall.name}`;
+        if (p.thought) return `thought(${p.thought.length} chars)`;
+        if (p.text) return `text(${p.text.length} chars)`;
+        return `unknown:${Object.keys(p).join(",")}`;
+      });
+      console.log(`  [gemini] ${parts.length} parts: ${partTypes.join(", ")}`);
+    }
 
     let content = "";
     const toolCalls: ToolCall[] = [];

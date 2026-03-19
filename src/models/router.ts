@@ -26,7 +26,7 @@ export class ModelRouter {
       const gemini = new GeminiProvider();
       gemini.initialize(config.providers.gemini.apiKey);
       this.providers.set("gemini", { provider: gemini, available: true });
-      console.log(`  ✓ gemini (${config.providers.gemini.defaultModel})`);
+      console.log(`  ✓ gemini (${config.providers.gemini.defaultModel || "default"})`);
     }
 
     // Claude

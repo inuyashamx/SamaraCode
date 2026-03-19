@@ -28,7 +28,7 @@ export const dirListTool: Tool = {
           for (const ent of ents) {
             const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
             result.push({ name: rel, type: ent.isDirectory() ? "directory" : "file" });
-            if (ent.isDirectory() && !ent.name.startsWith(".") && ent.name !== "node_modules") {
+            if (ent.isDirectory() && !ent.name.startsWith(".") && ent.name !== "node_modules" && ent.name !== "bower_components" && ent.name !== "dist" && ent.name !== "build" && ent.name !== "vendor") {
               await walk(path.join(dir, ent.name), rel);
             }
           }

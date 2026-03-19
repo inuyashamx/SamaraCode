@@ -320,9 +320,15 @@ export function getHTML(): string {
     border-radius: 8px;
     padding: 12px 16px;
     z-index: 100;
+    max-height: 60vh;
+    overflow-y: auto;
   }
   #confirm-overlay.show { display: block; }
-  #confirm-msg { color: var(--yellow); margin-bottom: 10px; font-size: 13px; }
+  #confirm-msg { color: var(--text); margin-bottom: 10px; font-size: 13px; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; }
+  #confirm-msg .diff-title { color: var(--yellow); font-weight: bold; margin-bottom: 8px; display: block; }
+  #confirm-msg .diff-section { color: var(--subtext); font-weight: bold; margin: 6px 0 2px; display: block; }
+  #confirm-msg .diff-remove { color: var(--red); }
+  #confirm-msg .diff-add { color: var(--green); }
   #confirm-buttons { display: flex; gap: 8px; }
   #confirm-buttons button {
     padding: 6px 16px;
@@ -505,9 +511,10 @@ ws.onmessage = (e) => {
       break;
 
     case 'confirm':
-      confirmMsg.textContent = '⚠ ' + msg.message;
+      confirmMsg.innerHTML = formatConfirmMsg(msg.message, msg.toolName);
       confirmOverlay.classList.add('show');
       inputEl.disabled = true;
+      confirmOverlay.scrollTop = 0;
       break;
 
     case 'tasks':
@@ -953,6 +960,33 @@ function updateAutoBadge(on) {
   var badge = document.getElementById('auto-badge');
   badge.textContent = on ? 'auto-accept' : 'confirm';
   badge.className = 'badge ' + (on ? 'badge-on' : 'badge-off');
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function formatConfirmMsg(message, toolName) {
+  if (toolName === 'file_edit') {
+    var lines = message.split('\\n');
+    var html = '';
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.startsWith('Edit:') || line.startsWith('Replace in')) {
+        html += '<span class="diff-title">⚠ ' + esc(line) + '</span>';
+      } else if (line.indexOf('Remove') !== -1 && line.indexOf('───') !== -1) {
+        html += '<span class="diff-section">' + esc(line) + '</span>';
+      } else if (line.indexOf('Add') !== -1 && line.indexOf('───') !== -1) {
+        html += '<span class="diff-section">' + esc(line) + '</span>';
+      } else if (line.startsWith('- ')) {
+        html += '<span class="diff-remove">' + esc(line) + '</span>\\n';
+      } else if (line.startsWith('+ ')) {
+        html += '<span class="diff-add">' + esc(line) + '</span>\\n';
+      } else {
+        html += esc(line) + '\\n';
+      }
+    }
+    return html;
+  }
+  return '<span class="diff-title">⚠ ' + esc(message) + '</span>';
 }
 
 function confirmAction(action) {

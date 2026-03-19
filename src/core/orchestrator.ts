@@ -68,8 +68,10 @@ You are a senior engineer. You have tools to read, search, edit, and write files
 
 ## RULES
 - ALWAYS search the codebase before making changes. Never guess where things are.
-- ALWAYS read the code around what you're changing. Understand the context.
-- ALWAYS verify after each edit.
+- ALWAYS read the code around what you're changing — at least 30 lines before AND after.
+- ALWAYS verify after each edit with file_read.
+- Make SMALL edits (max 5-10 lines each). Never replace 30+ lines at once. Break big changes into multiple small edits.
+- After wrapping code in a new block (like .then()), read the lines AFTER your edit to fix indentation and closing brackets.
 - When the user mentions a service, collection, or data source — grep for it to find existing usage examples. Use the same pattern.
 - In JS string concatenation ('<div>' + x), use variables like this.x or r.x — NEVER [[binding]].
 - In HTML <template>, use [[variable]] — NEVER this.variable.
@@ -107,39 +109,11 @@ const FIXED_AGENT_TOOLS = Object.entries(AGENT_ROLES).map(([key, role]) => ({
   },
 }));
 
+// NOTE: FIXED_AGENT_TOOLS and spawn_agent are kept in code but NOT exposed to the LLM.
+// The orchestrator now works as a single agent with direct tool access.
+// Sub-agent infrastructure is preserved for future use or manual invocation.
+
 const VIRTUAL_TOOLS = [
-  ...FIXED_AGENT_TOOLS,
-  {
-    name: "create_tool",
-    description: "Create a new dynamic tool from a blueprint. Built, auto-tested, and registered.",
-    parameters: {
-      type: "object" as const,
-      properties: {
-        blueprint: { type: "object", description: "Tool blueprint JSON" },
-      },
-      required: ["blueprint"],
-    },
-  },
-  {
-    name: "spawn_agent",
-    description: "Spawn a CUSTOM sub-agent for tasks that don't fit the fixed roles (scout, planner, developer, verifier, tester, debugger, researcher, installer). Only use this when no fixed role applies.",
-    parameters: {
-      type: "object" as const,
-      properties: {
-        name: { type: "string", description: "Agent identifier" },
-        role: { type: "string", description: "What this agent does (system prompt)" },
-        task: { type: "string", description: "The specific task to execute" },
-        tools: {
-          type: "array",
-          description: "Tool names this agent can use",
-          items: { type: "string" },
-        },
-        provider: { type: "string", description: "Optional: force provider (claude, openai, deepseek, gemini, ollama)" },
-        model: { type: "string", description: "Optional: force model name" },
-      },
-      required: ["name", "role", "task", "tools"],
-    },
-  },
   {
     name: "run_background",
     description: "Run a shell command in the background. Returns immediately with task ID. You'll be notified when it finishes.",
@@ -310,6 +284,8 @@ export class Orchestrator extends EventEmitter {
       ...VIRTUAL_TOOLS,
     ];
 
+    console.log(`[system] ${tools.length} tools available | ${this.conversationHistory.length} messages in history`);
+
     if (this.config.verbose) {
       const info = this.router.getRoutingInfo(userMessage);
       // Orchestrator always uses complex routing
@@ -332,9 +308,7 @@ export class Orchestrator extends EventEmitter {
         consecutiveErrors = 0;
       } catch (err: any) {
         consecutiveErrors++;
-        if (this.config.verbose) {
-          console.log(`  ⚠ LLM error: ${err.message}`);
-        }
+        console.log(`[error] LLM call failed (attempt ${consecutiveErrors}/3): ${err.message}`);
         if (consecutiveErrors >= 3) {
           this.conversationHistory.push({
             role: "assistant",
@@ -355,14 +329,25 @@ export class Orchestrator extends EventEmitter {
       }
 
       if (!response.tool_calls || response.tool_calls.length === 0) {
+        if (!response.content || !response.content.trim()) {
+          console.log(`[error] LLM returned empty response (no content, no tool calls) at iteration ${iterations}`);
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            return "Error: LLM returned empty responses repeatedly. The model may not support this configuration.";
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
         this.conversationHistory.push({ role: "assistant", content: response.content });
         return response.content;
       }
 
       // Show what the LLM is thinking if it has text before tool calls
       if (response.content && response.content.trim()) {
-        console.log(`  💭 ${response.content}`);
+        console.log(`[thinking] 💭 ${response.content}`);
       }
+
+      console.log(`[system] Iteration ${iterations}/${this.config.maxIterations} — ${response.tool_calls.length} tool call(s)`);
 
       const assistantMsg: Message = {
         role: "assistant",
@@ -373,9 +358,7 @@ export class Orchestrator extends EventEmitter {
       this.conversationHistory.push(assistantMsg);
 
       for (const tc of response.tool_calls) {
-        if (this.config.verbose) {
-          console.log(`  ${this.describeToolCall(tc)}`);
-        }
+        console.log(`[tool] ${this.describeToolCall(tc)}`);
 
         let result: ToolResult;
 
@@ -437,10 +420,8 @@ export class Orchestrator extends EventEmitter {
           success: result.success,
         }).catch(() => {});
 
-        if (this.config.verbose) {
-          const icon = result.success ? "✓" : "✗";
-          console.log(`    ${icon} ${this.describeToolResult(tc.name, result)}`);
-        }
+        const icon = result.success ? "✓" : "✗";
+        console.log(`[tool] ${icon} ${this.describeToolResult(tc.name, result)}`);
 
         const toolMsg: Message = {
           role: "tool",
@@ -654,9 +635,22 @@ export class Orchestrator extends EventEmitter {
 
   private async executeWithSafety(toolCall: ToolCall): Promise<ToolResult> {
     const { name, arguments: args } = toolCall;
-    const riskyTools = ["bash_execute", "file_write"];
+    const riskyTools = ["bash_execute", "file_write", "file_edit"];
 
-    if (this.config.autonomyLevel === 0 && this.config.confirmBeforeExec) {
+    if (name === "file_edit" && this.config.confirmBeforeExec) {
+      // Show the diff to the user before applying
+      const diffInfo: Record<string, any> = { path: args.path };
+      if (args.old_string) {
+        diffInfo.description = `Replace in ${args.path}`;
+        diffInfo.remove = args.old_string;
+        diffInfo.add = args.new_string;
+      } else if (args.start_line) {
+        diffInfo.description = `Edit ${args.path} at line ${args.start_line}${args.end_line ? `-${args.end_line}` : ""}`;
+        diffInfo.add = args.new_string;
+      }
+      const confirmed = await this.config.confirmBeforeExec("file_edit", diffInfo);
+      if (!confirmed) return { success: false, error: "User rejected edit" };
+    } else if (this.config.autonomyLevel === 0 && this.config.confirmBeforeExec) {
       const confirmed = await this.config.confirmBeforeExec(name, args);
       if (!confirmed) return { success: false, error: "User denied execution" };
     } else if (this.config.autonomyLevel === 1 && riskyTools.includes(name) && this.config.confirmBeforeExec) {
@@ -670,13 +664,21 @@ export class Orchestrator extends EventEmitter {
   private describeToolCall(tc: ToolCall): string {
     const a = tc.arguments;
     switch (tc.name) {
-      case "file_read": return `📄 Reading ${a.path}`;
+      case "file_read": {
+        const range = a.start_line ? ` (lines ${a.start_line}-${a.end_line || "end"})` : "";
+        return `📄 Reading ${a.path}${range}`;
+      }
       case "file_write": return `✎ Writing ${a.path} (${a.content?.length || 0} chars)`;
-      case "dir_list": return `📂 Listing ${a.path || "."}`;
+      case "file_edit": {
+        if (a.old_string) return `✏️ Editing ${a.path}: replacing "${(a.old_string || "").slice(0, 60)}..."`;
+        if (a.start_line) return `✏️ Editing ${a.path}: lines ${a.start_line}-${a.end_line || a.start_line}`;
+        return `✏️ Editing ${a.path}`;
+      }
+      case "dir_list": return `📂 Listing ${a.path || "."}${a.recursive ? " (recursive)" : ""}`;
       case "bash_execute": return `$ ${(a.command || "").slice(0, 100)}`;
       case "web_search": return `🔍 Searching: "${a.query}"`;
       case "web_fetch": return `🌐 Fetching ${a.url}`;
-      case "grep_search": return `🔎 Grep "${a.pattern}" in ${a.path || "."}`;
+      case "grep_search": return `🔎 Grep "${a.pattern}" in ${a.path || "."}${a.include ? ` (${a.include})` : ""}`;
       case "memory_save": return `💾 Saving memory: ${a.key}`;
       case "memory_load": return `📎 Loading memory: ${a.key || "all"}`;
       case "git_status": return `⎇ git status`;
@@ -686,7 +688,7 @@ export class Orchestrator extends EventEmitter {
       case "git_branch": return `⎇ git branch ${a.action || "list"}`;
       case "project_info": return `📋 Scanning project at ${a.path || "."}`;
       case "create_tool": return `🔨 Creating tool: "${a.blueprint?.name || "?"}"`;
-      case "spawn_agent": return `◆ Spawning custom agent: "${a.name}" → ${a.task || ""}`;
+      case "spawn_agent": return `◆ Spawning custom agent: "${a.name}" → ${(a.task || "").slice(0, 80)}`;
       case "run_background": return `⟳ Background: "${a.name}" → ${a.command || ""}`;
       case "make_plan": return `▦ Planning: ${a.task || ""}`;
       case "run_process": return `▶ Process: "${a.name}" → ${a.command || ""}`;
@@ -697,22 +699,22 @@ export class Orchestrator extends EventEmitter {
       case "self_propose": return `⚡ Proposing self-modification: ${a.description || ""}`;
       case "self_apply": return `⚡ Applying self-modification: ${a.proposal_id}`;
       default: {
-        // Handle fixed agent spawns (spawn_scout, spawn_developer, etc.)
         if (tc.name.startsWith("spawn_") && getAgentRole(tc.name.replace("spawn_", ""))) {
           const type = tc.name.replace("spawn_", "");
           return `◆ Spawning ${type}: ${(a.task || "").slice(0, 80)}`;
         }
-        return `⚙ ${tc.name}`;
+        return `⚙ ${tc.name}: ${JSON.stringify(a).slice(0, 100)}`;
       }
     }
   }
 
   private describeToolResult(name: string, result: ToolResult): string {
-    if (!result.success) return result.error || "failed";
+    if (!result.success) return `FAILED: ${result.error || "unknown error"}`;
 
     switch (name) {
       case "file_read": return `${(result.data || "").length} chars read`;
       case "file_write": return "written";
+      case "file_edit": return typeof result.data === "string" ? result.data : "edited";
       case "dir_list": return `${result.data?.length || 0} entries`;
       case "bash_execute": {
         const out = result.data?.stdout || "";
@@ -720,7 +722,11 @@ export class Orchestrator extends EventEmitter {
       }
       case "web_search": return `${result.data?.count || 0} results`;
       case "web_fetch": return `${result.data?.status || "?"} (${result.data?.body?.length || 0} chars)`;
-      case "grep_search": return `${result.data?.count || 0} matches`;
+      case "grep_search": {
+        const count = result.data?.count || 0;
+        const files = result.data?.matches ? [...new Set(result.data.matches.map((m: any) => m.file))].slice(0, 5).join(", ") : "";
+        return `${count} matches${files ? ` in: ${files}` : ""}`;
+      }
       case "git_status": return `branch: ${result.data?.branch || "?"}`;
       case "git_log": return `${result.data?.count || 0} commits`;
       case "spawn_agent": return `task ${result.data?.taskId || "?"}`;
