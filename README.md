@@ -1,4 +1,4 @@
-# ⚡ SamaraCode
+# ⚡ SamaraGeminiCode
 
 Autonomous coding agent. Tell it what to build, it figures out how.
 
